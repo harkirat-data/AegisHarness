@@ -18,8 +18,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # AegisHarness Local Runtime State & Ephemeral Logs
-data/ephemeral/
-data/sandboxes/
+data/
+*.jsonl
 *.sqlite3
 *.db
 

@@ -223,9 +223,10 @@ class EphemeralTargetSandbox:
         cmd_clean = command.strip()
 
         # Step 1: Virtualized command parser into syscall equivalents
-        if "cat /etc/passwd" in cmd_clean or "etc/passwd" in cmd_clean:
-            # Emulate openat(AT_FDCWD, "/etc/passwd", O_RDONLY)
-            self.intercept_syscall("openat", {"filename": "/etc/passwd", "flags": "O_RDONLY"})
+        if any(f in cmd_clean for f in ["/etc/passwd", "etc/passwd", "/etc/shadow", "etc/shadow", "/etc/sudoers", ".ssh/id_rsa"]):
+            # Emulate openat(AT_FDCWD, target_file, O_RDONLY)
+            matched_file = next(f for f in ["/etc/passwd", "/etc/shadow", "/etc/sudoers", "/root/.ssh/id_rsa"] if f in cmd_clean or f.split("/")[-1] in cmd_clean)
+            self.intercept_syscall("openat", {"filename": matched_file, "flags": "O_RDONLY"})
 
         elif "rm -rf" in cmd_clean and ("/var/log" in cmd_clean or "log" in cmd_clean):
             # Emulate unlinkat(AT_FDCWD, "/var/log/audit.log", 0)
