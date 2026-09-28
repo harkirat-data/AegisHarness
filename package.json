@@ -1,0 +1,21 @@
+{
+  "name": "aegis-harness",
+  "version": "1.0.0",
+  "description": "Secure Multi-Tenant Infrastructure for Adversarial AI Safety Testing",
+  "main": "web/index.html",
+  "scripts": {
+    "start": "python -m aegis.api.server",
+    "test": "pytest tests"
+  },
+  "keywords": [
+    "ai-safety",
+    "red-teaming",
+    "zero-trust",
+    "sandbox",
+    "gvisor",
+    "ebpf",
+    "cybersecurity"
+  ],
+  "author": "Harkirat Singh",
+  "license": "MIT"
+}
