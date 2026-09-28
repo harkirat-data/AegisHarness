@@ -1,0 +1,35 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# AegisHarness Local Runtime State & Ephemeral Logs
+data/ephemeral/
+data/sandboxes/
+*.sqlite3
+*.db
+
+# Environment & Credentials
+.env
+.env.local
+*.key
+*.pem
+
+# Explainer files (kept strictly local for easy learning, never pushed to GitHub as requested)
+explainers/
+*.explainer.md
+local_notes/
