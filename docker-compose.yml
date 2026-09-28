@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # BLUE ZONE & CONTROL PLANE (ORCHESTRATOR)
+  # ==========================================
+  aegis-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-orchestrator-blue
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Blue zone audit ledger persisted out-of-band on host
+      - aegis-audit-data:/app/data
+    networks:
+      - blue-audit-net
+      - ingress-gateway-net
+    restart: unless-stopped
+
+  # ==========================================
+  # TARGET ZONE: ISOLATED WORKLOAD POD
+  # ==========================================
+  # In native Linux hosts, uncomment 'runtime: runsc' for gVisor
+  aegis-target-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-target-sandbox
+    # runtime: runsc # Enable gVisor user-space kernel wrapper on Linux
+    volumes:
+      # Foundational model weights mounted STRICTLY READ-ONLY
+      - model-weights-vol:/models/weights:ro
+    networks:
+      - target-isolated-net
+    # Zero-Trust: No default gateway to wide internet
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command: ["python", "-c", "import time; print('[TARGET_POD] Ephemeral sandbox running under gVisor Sentry.'); time.sleep(86400)"]
+
+networks:
+  # Ingress network for Red Zone tester API requests
+  ingress-gateway-net:
+    driver: bridge
+  # Dedicated one-way audit stream network for Blue Zone
+  blue-audit-net:
+    driver: bridge
+  # Air-gapped network with zero outbound internet egress
+  target-isolated-net:
+    driver: bridge
+    internal: true # Disables external internet gateway completely
+
+volumes:
+  aegis-audit-data:
+  model-weights-vol:
