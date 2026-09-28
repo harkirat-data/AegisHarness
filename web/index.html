@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisHarness | Tri-Workload Adversarial AI Safety Sandbox</title>
+  <meta name="description" content="Infrastructure-layer zero-trust evaluation sandbox physically isolating Red-Team attacks, Target LLM execution, and Blue-Team out-of-band audit auditing.">
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/static/css/aegis.css">
+</head>
+<body class="cyber-theme">
+  <!-- Top Navigation & Global Status Bar -->
+  <header class="navbar">
+    <div class="brand">
+      <div class="shield-icon">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4" stroke="#00f5d4" stroke-width="2.5"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">AEGIS<span>HARNESS</span></h1>
+        <p class="brand-sub">Tri-Workload Zero-Trust AI Sandbox</p>
+      </div>
+    </div>
+
+    <!-- Live Telemetry Badges -->
+    <div class="metrics-bar">
+      <div class="metric-card">
+        <span class="metric-label">ISOLATION</span>
+        <span class="metric-val text-cyan">gVisor / MicroVM</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">NETWORK EGRESS</span>
+        <span class="metric-val text-crimson">0% Default-Deny</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">WEIGHTS</span>
+        <span class="metric-val text-amber">🔒 Read-Only</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">AUDIT WORM LEDGER</span>
+        <span id="ledger-badge" class="metric-val text-emerald">100% Cryptographic</span>
+      </div>
+      <div class="metric-card connection-pill">
+        <span id="socket-indicator" class="pulse-dot"></span>
+        <span id="socket-status">CONNECTING...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Threat Emergency HUD Banner (Hidden by default, flashes during SEV-1) -->
+  <div id="threat-hud-banner" class="hud-banner hidden">
+    <div class="hud-content">
+      <div class="hud-alert-icon">⚠️</div>
+      <div>
+        <strong id="hud-threat-title">CRITICAL SEV-1 EXPLOIT DETECTED</strong>
+        <p id="hud-threat-desc">Syscall intercepted by user-space runtime. Automated container slaughter in progress.</p>
+      </div>
+      <div class="hud-stats">
+        <span class="latency-badge" id="hud-latency">0.67 ms slaughter</span>
+        <button id="btn-dismiss-hud" class="btn-ghost-sm">DISMISS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Three-Column Tri-Workload Layout -->
+  <main class="tri-columns-container">
+
+    <!-- ==================== COLUMN 1: RED ZONE ==================== -->
+    <section class="tri-column red-zone" id="col-red">
+      <div class="column-header">
+        <div class="zone-tag tag-red">
+          <span class="zone-dot"></span> RED ZONE : TESTER INGRESS
+        </div>
+        <span class="zone-desc">Automated Exploit Suite & Adversarial Payloads</span>
+      </div>
+
+      <div class="card-panel">
+        <label for="attack-select" class="panel-label">SELECT ADVERSARIAL PAYLOAD</label>
+        <div class="select-wrapper">
+          <select id="attack-select" class="form-select">
+            <option value="">Loading attack arsenal...</option>
+          </select>
+        </div>
+
+        <div class="payload-details-box">
+          <div class="detail-row">
+            <span class="detail-title">Category:</span>
+            <span id="payload-category" class="detail-value text-red">--</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-title">MITRE ATLAS:</span>
+            <span id="payload-mitre" class="detail-value text-amber">--</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-title">Severity:</span>
+            <span id="payload-sev" class="detail-value">--</span>
+          </div>
+          <p id="payload-desc" class="payload-explanation">Select an exploit to inspect payload details.</p>
+        </div>
+
+        <div class="prompt-preview-box">
+          <label class="panel-sublabel">ADVERSARIAL INGRESS PROMPT</label>
+          <textarea id="prompt-input" class="form-textarea" rows="4" placeholder="Select attack or type custom jailbreak prompt..."></textarea>
+          
+          <label class="panel-sublabel mt-2">TARGET TOOL COMMAND (EXECVE SIM)</label>
+          <input type="text" id="command-input" class="form-input" placeholder="e.g. cat /etc/passwd">
+        </div>
+
+        <div class="action-buttons-group">
+          <button id="btn-fire-attack" class="btn-fire">
+            <span class="btn-icon">⚡</span> LAUNCH ATTACK
+          </button>
+          <button id="btn-run-suite" class="btn-secondary">
+            <span>🛡️</span> RUN 9-TEST SUITE
+          </button>
+        </div>
+      </div>
+
+      <!-- Red Ingress Terminal Log -->
+      <div class="terminal-panel red-terminal">
+        <div class="terminal-bar">
+          <span>RED_ZONE_INGRESS_PIPE.log</span>
+          <span class="stream-badge">LIVE</span>
+        </div>
+        <div id="red-terminal-log" class="terminal-body">
+          <div class="log-line text-muted">[RED_INGRESS] Tester pipe initialized. Ready to deliver payloads.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== COLUMN 2: TARGET ZONE ==================== -->
+    <section class="tri-column target-zone" id="col-target">
+      <div class="column-header">
+        <div class="zone-tag tag-amber">
+          <span class="zone-dot"></span> TARGET ZONE : EPHEMERAL WORKLOAD
+        </div>
+        <span class="zone-desc">User-Space Virtual Kernel & gVisor Sandbox</span>
+      </div>
+
+      <!-- Target Sandbox Virtualization Status -->
+      <div class="card-panel">
+        <div class="sandbox-status-card">
+          <div class="status-header">
+            <div>
+              <span class="sub-heading">ACTIVE SANDBOX ID</span>
+              <h3 id="sandbox-id-display" class="sandbox-id-text">target-sbx-idle</h3>
+            </div>
+            <div id="sandbox-status-pill" class="status-pill status-ready">READY</div>
+          </div>
+
+          <div class="security-matrix">
+            <div class="matrix-item">
+              <span class="matrix-icon">🛡️</span>
+              <div class="matrix-info">
+                <span class="matrix-title">Syscall Trap Layer</span>
+                <span class="matrix-status text-emerald">gVisor User-Space Sentry</span>
+              </div>
+            </div>
+            <div class="matrix-item">
+              <span class="matrix-icon">🔒</span>
+              <div class="matrix-info">
+                <span class="matrix-title">Model Weights</span>
+                <span class="matrix-status text-cyan">Read-Only Volume Mount</span>
+              </div>
+            </div>
+            <div class="matrix-item">
+              <span class="matrix-icon">🚫</span>
+              <div class="matrix-info">
+                <span class="matrix-title">Outbound Egress</span>
+                <span class="matrix-status text-crimson">0.00 B/s (Default-Deny)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-Time Syscall Sniffer Table -->
+        <div class="syscall-sniffer-container">
+          <div class="panel-header-inline">
+            <span class="panel-sublabel">SYSCALL INTERCEPTION STREAM</span>
+            <span class="sublabel-note">x86_64 Sentry Trap</span>
+          </div>
+          <div class="syscall-table-wrapper">
+            <table class="syscall-table">
+              <thead>
+                <tr>
+                  <th>NR</th>
+                  <th>SYSCALL</th>
+                  <th>ARGUMENTS</th>
+                  <th>ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="syscall-table-body">
+                <tr>
+                  <td class="text-muted">--</td>
+                  <td class="text-muted">Awaiting workload...</td>
+                  <td class="text-muted">None</td>
+                  <td><span class="badge-neutral">IDLE</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Target Execution Terminal -->
+      <div class="terminal-panel target-terminal">
+        <div class="terminal-bar">
+          <span>AI_AGENT_TOOL_EXECUTION.log</span>
+          <span id="target-exec-status" class="stream-badge bg-amber">IDLE</span>
+        </div>
+        <div id="target-terminal-log" class="terminal-body">
+          <div class="log-line text-muted">[TARGET_ZONE] Ephemeral sandbox initialized with memory limits.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== COLUMN 3: BLUE ZONE ==================== -->
+    <section class="tri-column blue-zone" id="col-blue">
+      <div class="column-header">
+        <div class="zone-tag tag-cyan">
+          <span class="zone-dot"></span> BLUE ZONE : AUDIT & QUARANTINE
+        </div>
+        <span class="zone-desc">Out-of-Band Telemetry & Cryptographic WORM</span>
+      </div>
+
+      <div class="card-panel">
+        <!-- Cryptographic Ledger Status & Verify -->
+        <div class="ledger-box">
+          <div class="ledger-header">
+            <div>
+              <span class="sub-heading">WORM AUDIT LEDGER (SHA-256)</span>
+              <div class="ledger-hash-display">
+                <span class="hash-tag">TIP:</span>
+                <span id="ledger-tip-hash" class="hash-code">000000000000000000000000...</span>
+              </div>
+            </div>
+            <button id="btn-verify-ledger" class="btn-verify">
+              <span>🔍</span> VERIFY PROOF
+            </button>
+          </div>
+          <div id="verify-status-banner" class="verify-banner verified">
+            ✅ <strong>Ledger 100% Mathematically Intact</strong> (Blocks: <span id="block-count">0</span>)
+          </div>
+        </div>
+
+        <!-- Automated Quarantine Control HUD -->
+        <div class="quarantine-control-box">
+          <div class="panel-header-inline">
+            <span class="panel-sublabel">AUTOMATED QUARANTINE CONTROLS</span>
+            <span class="sublabel-note">SLA: Sub-1ms</span>
+          </div>
+          <div class="quarantine-metrics-row">
+            <div class="q-stat">
+              <span class="q-stat-val text-emerald" id="stat-interception">100%</span>
+              <span class="q-stat-label">Trapped Rate</span>
+            </div>
+            <div class="q-stat">
+              <span class="q-stat-val text-cyan" id="stat-latency">0.67 ms</span>
+              <span class="q-stat-label">Kill Latency</span>
+            </div>
+            <div class="q-stat">
+              <span class="q-stat-val text-amber" id="stat-slaughter-count">0</span>
+              <span class="q-stat-label">Slaughters</span>
+            </div>
+          </div>
+          <button id="btn-manual-quarantine" class="btn-danger-outline mt-2">
+            <span>🚨</span> ENGAGE OPERATOR KILL SWITCH
+          </button>
+        </div>
+      </div>
+
+      <!-- Blue Out-of-Band Audit Pipe Terminal -->
+      <div class="terminal-panel blue-terminal">
+        <div class="terminal-bar">
+          <span>OUT_OF_BAND_SECURITY_PIPE.log</span>
+          <span class="stream-badge bg-cyan">ENCRYPTED</span>
+        </div>
+        <div id="blue-terminal-log" class="terminal-body">
+          <div class="log-line text-muted">[BLUE_ZONE] Out-of-band telemetry pipe active. Independent filesystem stream connected.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Interactive Modal for Ledger Inspection & Session Forensics -->
+  <div id="forensic-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔍 Cryptographic Ledger Forensic Audit</h3>
+        <button id="btn-close-modal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">Traversing Merkle-linked SHA-256 hash chains. Any modified block immediately breaks downstream hashes.</p>
+        <div class="table-responsive">
+          <table class="audit-modal-table">
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Zone</th>
+                <th>Event</th>
+                <th>Severity</th>
+                <th>Prev Hash</th>
+                <th>Block Hash</th>
+              </tr>
+            </thead>
+            <tbody id="modal-ledger-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/static/js/dashboard.js"></script>
+  <script src="/static/js/attack_controller.js"></script>
+</body>
+</html>
