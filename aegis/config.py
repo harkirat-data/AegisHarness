@@ -22,8 +22,10 @@ class SandboxState(str, Enum):
     READY = "READY"
     EXECUTING = "EXECUTING"
     THREAT_DETECTED = "THREAT_DETECTED"
+    QUARANTINE_REQUESTED = "QUARANTINE_REQUESTED"
     QUARANTINED = "QUARANTINED"
     TERMINATED = "TERMINATED"
+    FAILED = "FAILED"
 
 
 @dataclass
@@ -38,7 +40,10 @@ class SecurityPolicy:
         "/proc/kallsyms",
         "/sys/kernel",
         "/var/log",
-        "/var/run/docker.sock"
+        "/var/run/docker.sock",
+        "confidential_salaries.csv",
+        "payroll_secrets.json",
+        "financial_records"
     })
 
     # Read-Only Directories (AI Model Weights & Foundation Binaries)
