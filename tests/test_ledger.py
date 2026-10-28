@@ -50,3 +50,41 @@ def test_tamper_detection_on_severity_downgrade():
     is_valid, err_msg, comp_idx = ledger.verify_integrity()
     assert is_valid is False
     assert comp_idx == 0
+
+
+def test_tamper_detection_on_event_deletion():
+    ledger = TamperProofAuditLedger()
+    ledger.append_event("sess-4", "RED", "DISPATCH", "SEV-1_CRITICAL", {"step": 0})
+    ledger.append_event("sess-4", "TARGET", "TRAP", "SEV-1_CRITICAL", {"step": 1})
+    ledger.append_event("sess-4", "BLUE", "QUARANTINE", "SEV-1_CRITICAL", {"step": 2})
+
+    # Attacker deletes intermediate block 1 to erase breach evidence
+    del ledger._records[1]
+    is_valid, err_msg, comp_idx = ledger.verify_integrity()
+    assert is_valid is False
+    assert comp_idx == 1  # Detects index or hash linkage break at position 1
+
+
+def test_tamper_detection_on_event_reordering():
+    ledger = TamperProofAuditLedger()
+    ledger.append_event("sess-5", "RED", "EVENT_0", "SEV-4_INFO", {"idx": 0})
+    ledger.append_event("sess-5", "TARGET", "EVENT_1", "SEV-1_CRITICAL", {"idx": 1})
+    ledger.append_event("sess-5", "BLUE", "EVENT_2", "SEV-4_INFO", {"idx": 2})
+
+    # Swap blocks 1 and 2
+    ledger._records[1], ledger._records[2] = ledger._records[2], ledger._records[1]
+    is_valid, err_msg, comp_idx = ledger.verify_integrity()
+    assert is_valid is False
+
+
+def test_tamper_detection_on_broken_hash_pointer():
+    ledger = TamperProofAuditLedger()
+    ledger.append_event("sess-6", "RED", "EVENT_0", "SEV-4_INFO", {"step": 0})
+    rec1 = ledger.append_event("sess-6", "TARGET", "EVENT_1", "SEV-1_CRITICAL", {"step": 1})
+
+    # Attacker mutates previous_hash pointer directly
+    rec1.previous_hash = "a" * 64
+    is_valid, err_msg, comp_idx = ledger.verify_integrity()
+    assert is_valid is False
+    assert comp_idx == 1
+
