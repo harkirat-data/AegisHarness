@@ -615,7 +615,9 @@ class AttackController {
       if (failEl) failEl.innerText = breaches;
       if (rateEl) rateEl.innerText = `${Math.round((defended / total) * 100)}%`;
 
-      this.renderDiagnosticTrace(data);
+      if (data && data.trace_stages) {
+        this.renderTraceStages(data.trace_stages, data.outcome_type);
+      }
       if (window.aegisDashboard) {
         window.aegisDashboard.refreshLedgerStatus();
       }
@@ -740,6 +742,12 @@ class AttackController {
 
     // 5. Render verifiable diagnostic trace stages
     this.renderTraceStages(data.trace_stages, data.outcome_type);
+  }
+
+  renderDiagnosticTrace(data) {
+    if (data && data.trace_stages) {
+      this.renderTraceStages(data.trace_stages, data.outcome_type);
+    }
   }
 
   renderTraceStages(stages, outcomeType) {
