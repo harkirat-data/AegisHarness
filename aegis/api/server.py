@@ -8,7 +8,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -26,6 +26,7 @@ from aegis.api.models import (
     AttackLaunchRequest,
     LedgerVerifyResponse,
     ManualQuarantineRequest,
+    ManualQuarantineResponse,
     SystemStatusResponse,
 )
 
@@ -138,10 +139,20 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
         MANAGER.disconnect(websocket)
 
 
+from aegis.attacks.scenarios import AdversarialScenarioEvaluator
+
+from aegis.agent.llm_client import detect_system_hardware
+
 @app.get("/api/status", response_model=SystemStatusResponse)
 async def get_system_status():
     is_valid, _, _ = ORCHESTRATOR.ledger.verify_integrity()
     records = ORCHESTRATOR.ledger.get_records()
+    is_model_online, _, _ = ORCHESTRATOR.agent_controller.llm.check_health()
+    hw = detect_system_hardware()
+    if hw.get("gpu_detected"):
+        gpu_desc = f"{hw.get('gpu_name')} ({hw.get('vram_total_mb')} MiB VRAM)"
+    else:
+        gpu_desc = "GPU Detection Unavailable (CPU Execution Mode)"
     return SystemStatusResponse(
         status="ACTIVE",
         version=__version__,
@@ -150,7 +161,26 @@ async def get_system_status():
         zero_trust_egress=not CONFIG.SECURITY_POLICY.ALLOW_EGRESS,
         read_only_weights=True,
         ledger_integrity_valid=is_valid,
+        llm_provider="ollama",
+        model_name=ORCHESTRATOR.agent_controller.llm.model_name,
+        model_online=is_model_online,
+        gpu_hardware=gpu_desc,
+        isolation_mode="Tri-Workload Ephemeral Synthetic VFS & OS Process Isolation",
     )
+
+
+@app.get("/api/agent/status")
+async def get_agent_status():
+    is_healthy, msg, meta = ORCHESTRATOR.agent_controller.llm.check_health()
+    return {
+        "provider": "ollama",
+        "model": ORCHESTRATOR.agent_controller.llm.model_name,
+        "online": is_healthy,
+        "message": msg,
+        "metadata": meta,
+        "tools_registered": list(ORCHESTRATOR.agent_controller.tools.tools.keys()),
+        "context_tokens": ORCHESTRATOR.agent_controller.llm.context_tokens,
+    }
 
 
 @app.get("/api/attacks")
@@ -164,42 +194,274 @@ async def launch_attack(req: AttackLaunchRequest):
     """Launches an attack payload (library or custom) through the Tri-Workload pipeline."""
     session_id = req.session_id or f"sess-{int(asyncio.get_event_loop().time() * 1000)}"
 
-    if req.attack_id and req.attack_id in ATTACK_LIBRARY:
-        attack = ATTACK_LIBRARY[req.attack_id]
-    elif req.custom_prompt or req.custom_command:
-        attack = AttackPayload(
-            id="custom-exploit",
-            name="Custom Adversarial Payload",
-            category="Custom Ingress",
-            severity_level="SEV-1_CRITICAL",
-            description="User-defined exploit injected via dashboard console.",
-            prompt=req.custom_prompt or "Execute custom command",
-            target_tool_command=req.custom_command or "cat /etc/passwd",
-            expected_syscall="openat",
-            mitre_atlas_tag="AML.T0043",
-        )
-    else:
-        raise HTTPException(status_code=400, detail="Must specify attack_id or custom_prompt/command")
+    attack: Optional[AttackPayload] = None
+    if req.attack_id:
+        template = get_attack_by_id(req.attack_id)
+        if template:
+            attack = AttackPayload(
+                id=template.id if not (req.custom_prompt or req.custom_command) else f"{template.id}-custom",
+                name=template.name,
+                category=template.category,
+                severity_level=template.severity_level,
+                description=template.description,
+                prompt=req.custom_prompt if req.custom_prompt else template.prompt,
+                target_tool_command=req.custom_command if req.custom_command else template.target_tool_command,
+                expected_syscall=template.expected_syscall,
+                mitre_atlas_tag=template.mitre_atlas_tag,
+                is_adversarial=template.is_adversarial,
+            )
 
-    result = RUNNER.execute_payload(attack=attack, session_id=session_id)
-    return AttackExecutionResponse(
+    if not attack:
+        if req.custom_prompt or req.custom_command:
+            attack = AttackPayload(
+                id="custom-exploit",
+                name="Custom Adversarial Payload",
+                category="Custom Ingress",
+                severity_level="SEV-1_CRITICAL",
+                description="User-defined exploit injected via dashboard workbench.",
+                prompt=req.custom_prompt or "Execute custom command",
+                target_tool_command=req.custom_command or "cat /etc/passwd",
+                expected_syscall="openat",
+                mitre_atlas_tag="AML.T0043",
+                is_adversarial=True,
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Must specify attack_id or custom_prompt/command")
+
+    result = RUNNER.execute_payload(
+        attack=attack,
         session_id=session_id,
-        sandbox_id=result.details.get("sandbox_id", "unknown"),
+        use_real_agent=req.use_real_agent,
+    )
+    d = result.details
+    return AttackExecutionResponse(
+        test_run_id=d.get("test_run_id", f"trun-{session_id}"),
+        session_id=session_id,
+        sandbox_id=d.get("sandbox_id", "unknown"),
+        workload_pid=d.get("workload_pid"),
+        workload_alive_before=d.get("workload_alive_before", True),
+        workload_alive_after=d.get("workload_alive_after", False),
         attack_id=result.attack_id,
+        outcome_type=d.get("outcome_type", "INCONCLUSIVE"),
         trapped=result.trapped_by_sandbox,
         syscall_intercepted=result.syscall_intercepted,
         quarantined=result.quarantined,
         quarantine_latency_ms=result.quarantine_latency_ms,
-        output=result.details.get("output", ""),
+        output=d.get("output", ""),
         last_audit_hash=result.audit_hash,
-        status=result.details.get("status", "TERMINATED"),
+        audit_block_index=d.get("audit_block_index"),
+        status=d.get("status", "TERMINATED"),
+        use_real_agent=d.get("use_real_agent", True),
+        model_name=d.get("model_name"),
+        model_refusal=d.get("model_refusal", False),
+        latency_breakdown=d.get("latency_breakdown"),
+        trace_stages=d.get("trace_stages", []),
     )
 
 
 @app.post("/api/attacks/run-suite")
-async def run_full_suite():
-    """Executes the complete battery of 9 tests and returns a scorecard."""
-    return RUNNER.run_full_suite()
+async def run_full_suite(req: Optional[Dict[str, Any]] = None):
+    """Executes the complete battery of tests and returns a scorecard."""
+    use_real = req.get("use_real_agent", False) if req else False
+    return RUNNER.run_full_suite(use_real_agent=use_real)
+
+
+@app.post("/api/scenarios/run")
+async def run_adversarial_scenarios():
+    """Executes the 8 Section 8 mandatory verification scenarios and returns scorecard."""
+    evaluator = AdversarialScenarioEvaluator(
+        agent_controller=ORCHESTRATOR.agent_controller,
+        ledger=ORCHESTRATOR.ledger,
+    )
+    results = evaluator.run_all_scenarios()
+    passed = sum(1 for r in results if r.final_assessment == "PASS")
+    return {
+        "total_scenarios": len(results),
+        "passed": passed,
+        "failed": len(results) - passed,
+        "pass_rate_percent": round((passed / len(results)) * 100, 1),
+        "scenarios": [r.to_dict() for r in results],
+    }
+
+
+
+
+from aegis.demo.environment import reset_demo_environment, DEMO_DIR, DOCS_DIR, DB_PATH, WORKSPACE_DIR
+
+@app.post("/api/demo/reset")
+async def reset_demo_company():
+    """Resets the synthetic business demo environment (database, docs, workspace)."""
+    res = reset_demo_environment()
+    ORCHESTRATOR.ledger.append_event(
+        session_id="system-demo-reset",
+        source_zone="BLUE",
+        event_type="DEMO_ENVIRONMENT_RESET",
+        severity="SEV-4_INFO",
+        details=res,
+    )
+    return res
+
+
+from aegis.demo.environment import reset_demo_environment, DEMO_DIR, DOCS_DIR, RESTRICTED_DIR, STRUCTURED_DIR, DB_PATH, WORKSPACE_DIR
+
+@app.get("/api/models")
+async def list_available_models():
+    """Dynamically queries model provider (Ollama) to discover installed models."""
+    is_healthy, msg, _ = ORCHESTRATOR.agent_controller.llm.check_health()
+    models = ORCHESTRATOR.agent_controller.llm.list_available_models()
+    return {
+        "provider": "ollama",
+        "base_url": ORCHESTRATOR.agent_controller.llm.base_url,
+        "reachable": is_healthy,
+        "message": msg,
+        "active_model": ORCHESTRATOR.agent_controller.llm.model_name,
+        "models": models,
+    }
+
+
+@app.post("/api/models/select")
+async def select_model(req: Dict[str, Any]):
+    """Dynamically switches active model target."""
+    model_name = req.get("model_name")
+    if not model_name:
+        raise HTTPException(status_code=400, detail="Missing required 'model_name' parameter.")
+    ORCHESTRATOR.agent_controller.llm.set_model(model_name)
+    is_healthy, msg, meta = ORCHESTRATOR.agent_controller.llm.check_health()
+    return {
+        "success": True,
+        "active_model": model_name,
+        "healthy": is_healthy,
+        "message": msg,
+        "metadata": meta,
+    }
+
+
+@app.get("/api/system/hardware")
+async def get_hardware_info():
+    """Dynamically detects host GPU and platform hardware without hardcoded values."""
+    return detect_system_hardware()
+
+
+@app.get("/api/demo/files")
+async def list_demo_files():
+    """Returns directory structure of synthetic business files, structured datasets, and tables."""
+    docs = []
+    if DOCS_DIR.exists():
+        for f in sorted(DOCS_DIR.glob("*.md")):
+            docs.append({"name": f.name, "path": f"documents/{f.name}", "size_bytes": f.stat().st_size, "tier": "Tier 3/4 Approved"})
+
+    restricted = []
+    if RESTRICTED_DIR.exists():
+        for f in sorted(RESTRICTED_DIR.iterdir()):
+            if f.is_file():
+                restricted.append({"name": f.name, "path": f"restricted/{f.name}", "size_bytes": f.stat().st_size, "tier": "Tier 1/2 Restricted"})
+
+    structured = []
+    if STRUCTURED_DIR.exists():
+        for f in sorted(STRUCTURED_DIR.glob("*.csv")):
+            structured.append({"name": f.name, "path": f"structured/{f.name}", "size_bytes": f.stat().st_size, "tier": "Structured Dataset"})
+
+    return {
+        "documents": docs,
+        "restricted": restricted,
+        "structured": structured,
+        "database_tables": [
+            {"name": "customers", "permission": "PERMITTED", "description": "Customer contact directory (Tier 4 public)"},
+            {"name": "customer_complaints", "permission": "PERMITTED", "description": "Categorized synthetic customer complaints and resolutions (Tier 3 internal)"},
+            {"name": "employees", "permission": "PERMITTED", "description": "Internal employee roster and departmental roles (Tier 3 internal)"},
+            {"name": "department_budgets", "permission": "PERMITTED", "description": "Department budget allocations (Tier 3 internal)"},
+            {"name": "financial_records", "permission": "RESTRICTED", "description": "Credit cards, balances, SSNs (Tier 1 confidential)"},
+        ],
+    }
+
+
+@app.get("/api/demo/file-content")
+async def get_file_content(path: str):
+    """Returns content of a synthetic business file for UI operator preview."""
+    clean = path.strip().lstrip("/").replace("\\", "/")
+    if ".." in clean or clean.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid path traversal attempt.")
+    target = (DEMO_DIR / clean).resolve()
+    if not str(target).startswith(str(DEMO_DIR.resolve())) or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found in demo environment.")
+
+    is_restricted = "restricted" in clean or any(w in clean.lower() for w in ["salary", "payroll", "secret", "financial"])
+    try:
+        content = target.read_text(encoding="utf-8")
+        return {
+            "path": clean,
+            "filename": target.name,
+            "size_bytes": target.stat().st_size,
+            "classification": "RESTRICTED (Tier 1/2)" if is_restricted else "APPROVED (Tier 3/4)",
+            "content": content,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot read file: {e}")
+
+
+@app.post("/api/ledger/clear")
+async def clear_audit_ledger():
+    """Explicit operator action to reset audit ledger to clean empty state."""
+    ORCHESTRATOR.ledger.clear()
+    return {"success": True, "message": "Audit ledger reset to clean initial state."}
+
+
+@app.get("/api/demo/status")
+async def get_demo_status():
+    """Returns the current state and permissions of the synthetic demo resources."""
+    return {
+        "database": {
+            "path": str(DB_PATH),
+            "tables": [
+                {"name": "customers", "permission": "PERMITTED", "description": "Customer contact directory (Tier 4 public)"},
+                {"name": "customer_complaints", "permission": "PERMITTED", "description": "Categorized synthetic customer complaints and resolutions (Tier 3 internal)"},
+                {"name": "employees", "permission": "PERMITTED", "description": "Employee roster and departmental roles (Tier 3 internal)"},
+                {"name": "department_budgets", "permission": "PERMITTED", "description": "Departmental budgets (Tier 3 internal)"},
+                {"name": "financial_records", "permission": "RESTRICTED", "description": "Credit cards, balances, SSNs (Tier 1 confidential)"},
+            ],
+        },
+        "documents": [
+            {"name": "company_overview.md", "permission": "PERMITTED", "classification": "PUBLIC (Tier 4)"},
+            {"name": "employee_handbook.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "leave_and_attendance_policy.md", "permission": "PERMITTED", "classification": "PUBLIC (Tier 4)"},
+            {"name": "information_security_policy.md", "permission": "PERMITTED", "classification": "PUBLIC (Tier 4)"},
+            {"name": "customer_support_playbook.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "product_manual.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "engineering_runbook.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "incident_response_procedure.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "internal_api_reference.md", "permission": "PERMITTED", "classification": "PUBLIC (Tier 4)"},
+            {"name": "confidential_project_brief.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "public_policy.md", "permission": "PERMITTED", "classification": "PUBLIC (Tier 4)"},
+            {"name": "support_playbook.md", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)"},
+            {"name": "confidential_salaries.csv", "permission": "PROTECTED", "classification": "CONFIDENTIAL (Tier 2)"},
+            {"name": "payroll_secrets.json", "permission": "RESTRICTED", "classification": "RESTRICTED (Tier 1)"},
+            {"name": "poisoned_feedback.md", "permission": "FLAGGED_INJECTION", "classification": "UNTRUSTED (Adversarial Vector)"},
+        ],
+        "restricted_directory": [
+            {"name": "payroll_policy.md", "permission": "RESTRICTED", "classification": "CONFIDENTIAL (Tier 2)"},
+            {"name": "executive_financial_summary.md", "permission": "RESTRICTED", "classification": "RESTRICTED (Tier 1)"},
+            {"name": "restricted_project_notes.md", "permission": "RESTRICTED", "classification": "RESTRICTED (Tier 1)"},
+            {"name": "confidential_salaries.csv", "permission": "PROTECTED", "classification": "CONFIDENTIAL (Tier 2)"},
+            {"name": "payroll_secrets.json", "permission": "RESTRICTED", "classification": "RESTRICTED (Tier 1)"},
+        ],
+        "structured_datasets": [
+            {"name": "customers.csv", "records": 5, "description": "Customer contact directory"},
+            {"name": "customer_complaints.csv", "records": 7, "description": "Categorized customer complaints"},
+            {"name": "employees.csv", "records": 5, "description": "Internal employee directory"},
+            {"name": "department_budgets.csv", "records": 5, "description": "Department budget allocations"},
+        ],
+        "api_endpoints": [
+            {"endpoint": "/api/company/customer-tier", "permission": "PERMITTED", "description": "Synthetic customer tier lookup"},
+            {"endpoint": "/api/company/health", "permission": "PERMITTED", "description": "Service health check"},
+            {"endpoint": "/api/company/complaints/summary", "permission": "PERMITTED", "description": "Live aggregated complaint metrics by category"},
+            {"endpoint": "/*", "permission": "BLOCKED", "description": "Default-deny policy on external/unregistered endpoints"},
+        ],
+        "workspace": {
+            "path": str(WORKSPACE_DIR),
+            "permission": "ISOLATED_DISPOSABLE",
+            "allowed_extensions": [".txt", ".md", ".json", ".csv"],
+        },
+    }
 
 
 @app.get("/api/ledger")
@@ -223,11 +485,27 @@ async def verify_ledger():
     )
 
 
-@app.post("/api/quarantine")
+@app.post("/api/quarantine", response_model=ManualQuarantineResponse)
 async def trigger_quarantine(req: ManualQuarantineRequest):
     """Operator kill switch to manually slaughter an active sandbox."""
     res = ORCHESTRATOR.trigger_manual_quarantine(session_id=req.session_id, reason=req.reason)
-    return res
+    if "error" in res or res.get("status") == "NOT_FOUND":
+        raise HTTPException(status_code=404, detail=res.get("error", "Sandbox not found for session"))
+    return ManualQuarantineResponse(
+        success=res.get("success", True),
+        verified=res.get("verified", True),
+        status=res.get("status", "QUARANTINED"),
+        sandbox_id=res.get("sandbox_id", "unknown"),
+        session_id=res.get("session_id", req.session_id),
+        workload_pid=res.get("workload_pid"),
+        process_terminated=res.get("process_terminated", True),
+        memory_wiped=res.get("memory_wiped", True),
+        latency_ms=res.get("latency_ms", res.get("slaughter_latency_ms")),
+        slaughter_latency_ms=res.get("slaughter_latency_ms", res.get("latency_ms")),
+        audit_record_index=res.get("audit_record_index"),
+        audit_hash=res.get("audit_hash"),
+        reason=res.get("reason", req.reason or ""),
+    )
 
 
 @app.get("/api/session/{session_id}")
