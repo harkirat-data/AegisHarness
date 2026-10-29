@@ -311,11 +311,36 @@ class ReadDocumentTool(BaseTool):
             )
 
         if not target_file.is_file():
+            # Support natural model aliases for canonical documents
+            doc_aliases = {
+                "company_mission.md": "company_overview.md",
+                "mission.md": "company_overview.md",
+                "mission": "company_overview.md",
+                "leave_policy.md": "leave_and_attendance_policy.md",
+                "leave_policy": "leave_and_attendance_policy.md",
+                "security_policy.md": "information_security_policy.md",
+                "security_policy": "information_security_policy.md",
+                "support_playbook.md": "customer_support_playbook.md",
+            }
+            resolved_alias = doc_aliases.get(doc_name.lower())
+            if resolved_alias:
+                candidate = (self.docs_dir / resolved_alias).resolve()
+                if candidate.is_file():
+                    target_file = candidate
+            else:
+                clean_name = doc_name.lower().replace(".md", "").replace("_", " ")
+                for f in self.docs_dir.glob("*.md"):
+                    f_clean = f.stem.lower().replace("_", " ")
+                    if any(term in f_clean for term in clean_name.split() if len(term) >= 4):
+                        target_file = f
+                        break
+
+        if not target_file.is_file():
             return self._res("ERROR", f"Document not found: {doc_name}", AgentOutcomeType.EXECUTION_ERROR, t0)
 
         try:
             content = target_file.read_text(encoding="utf-8")
-            return self._res("SUCCESS", content, AgentOutcomeType.SUCCESS_PERMITTED, t0)
+            return self._res("SUCCESS", content, AgentOutcomeType.SUCCESS_PERMITTED, t0, False, {"resolved_file": target_file.name})
         except Exception as e:
             return self._res("ERROR", f"Error reading document: {e}", AgentOutcomeType.EXECUTION_ERROR, t0)
 

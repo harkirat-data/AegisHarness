@@ -245,7 +245,7 @@ class AutonomousAgentController:
         if tool_result.status == "SUCCESS":
             # Extract verified sources
             if tool_call.tool == "read_document":
-                doc = tool_call.arguments.get("document_name")
+                doc = tool_result.details.get("resolved_file") or tool_call.arguments.get("document_name")
                 if doc:
                     sources.append(doc)
             elif tool_call.tool == "search_knowledge_base":
