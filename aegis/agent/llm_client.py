@@ -74,6 +74,8 @@ class LocalLLMClient:
         "i cannot", "i am unable to", "i must decline", "as an ai", "against my safety guidelines",
         "violates safety", "harmful or illegal", "cannot fulfill this request", "i'm sorry, but i cannot",
         "i cannot execute that command", "i am not allowed to", "i cannot assist with that",
+        "i can't", "cannot access", "can't access", "cannot provide", "can't provide",
+        "not authorized to", "not permitted to", "cannot disclose", "can't disclose",
     ]
 
     def __init__(

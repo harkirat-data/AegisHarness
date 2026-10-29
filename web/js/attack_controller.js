@@ -705,54 +705,132 @@ class AttackController {
   }
 
   updateTechnicalPanel(data) {
-    const runId = document.getElementById("tech-run-id");
-    const model = document.getElementById("tech-active-model");
-    const mode = document.getElementById("tech-active-mode");
-    const scope = document.getElementById("tech-scope-status");
-    const propTool = document.getElementById("tech-proposed-tool");
-    const toolStat = document.getElementById("tech-tool-status");
-    const polDec = document.getElementById("tech-policy-decision");
-    const audEvt = document.getElementById("tech-audit-event");
-    const traceCont = document.getElementById("tech-trace-container");
+    const statusBadge = document.getElementById("chat-exec-status");
+    const activeModel = document.getElementById("tech-active-model");
+    const pepDec = document.getElementById("tech-pep-decision");
+    const toolName = document.getElementById("tech-tool-name");
+    const auditHash = document.getElementById("tech-audit-hash");
+    const traceCont = document.getElementById("chat-trace-stages");
 
-    if (runId) runId.innerText = data.session_id || "--";
-    if (model) model.innerText = data.model_name || "--";
-    if (mode) mode.innerText = data.assistant_mode || "--";
-    if (scope) {
-      scope.innerText = data.scope_status || "--";
-      scope.className = data.scope_status === "IN_SCOPE_COMPANY" ? "text-emerald" : (data.scope_status === "OUT_OF_SCOPE" ? "text-amber" : "text-blue");
+    // 1. Overall execution status badge
+    if (statusBadge) {
+      const outcome = data.outcome_type || "NOT_VERIFIED";
+      statusBadge.innerText = outcome;
+      if (outcome === "SUCCESS_PERMITTED") {
+        statusBadge.className = "badge badge-permitted";
+      } else if (outcome === "POLICY_DENIED" || outcome === "RUNTIME_BLOCKED" || outcome === "SUCCESS_PROHIBITED") {
+        statusBadge.className = "badge badge-blocked";
+      } else if (outcome === "MODEL_REFUSAL") {
+        statusBadge.className = "badge badge-neutral";
+      } else {
+        statusBadge.className = "badge badge-neutral";
+      }
     }
-    if (propTool) propTool.innerText = data.tool_name || "None";
-    if (toolStat) {
-      toolStat.innerText = data.tool_status || "--";
-      toolStat.className = data.tool_status === "EXECUTED_ALLOWED" ? "text-emerald" : (data.tool_status.includes("DENIED") ? "text-red" : "text-muted");
-    }
-    if (polDec) {
-      polDec.innerText = data.policy_decision || "--";
-      polDec.className = data.policy_decision === "ALLOWED" ? "text-emerald" : (data.policy_decision === "DENIED" ? "text-red" : "text-muted");
-    }
-    if (audEvt) audEvt.innerText = data.audit_event_id || "--";
 
-    if (traceCont && data.trace_stages) {
+    // 2. Active Model
+    if (activeModel) {
+      activeModel.innerText = data.model_name || data.target_model || "--";
+    }
+
+    // 3. PEP Decision
+    if (pepDec) {
+      if (data.outcome_type === "POLICY_DENIED") {
+        pepDec.innerText = "DENIED";
+        pepDec.className = "badge badge-blocked";
+      } else if (data.outcome_type === "RUNTIME_BLOCKED") {
+        pepDec.innerText = "RUNTIME BLOCKED";
+        pepDec.className = "badge badge-blocked";
+      } else if (data.outcome_type === "MODEL_REFUSAL") {
+        pepDec.innerText = "NOT REACHED (REFUSED)";
+        pepDec.className = "badge badge-neutral";
+      } else if (data.pep_authorized === true && (data.tool_name || data.tool_executed)) {
+        pepDec.innerText = "AUTHORIZED";
+        pepDec.className = "badge badge-permitted";
+      } else if (data.tool_proposal && !data.pep_authorized) {
+        pepDec.innerText = "DENIED";
+        pepDec.className = "badge badge-blocked";
+      } else {
+        pepDec.innerText = "NOT REQUIRED (DIRECT)";
+        pepDec.className = "badge badge-neutral";
+      }
+    }
+
+    // 4. Tool Invoked
+    if (toolName) {
+      const tool = data.tool_name || data.tool_executed || (data.tool_proposal ? data.tool_proposal.tool : null);
+      if (tool) {
+        let argStr = "";
+        const args = (data.tool_proposal && data.tool_proposal.arguments) || {};
+        if (args.document_name) argStr = args.document_name;
+        else if (args.path) argStr = args.path;
+        else if (args.query) argStr = args.query;
+        else if (args.code) argStr = "code snippet";
+        else if (args.command) argStr = args.command;
+        else if (args.url) argStr = args.url;
+        else if (Object.keys(args).length > 0) argStr = JSON.stringify(args);
+
+        const callStr = argStr ? `${tool}(${argStr})` : `${tool}()`;
+        if (data.outcome_type === "POLICY_DENIED") {
+          toolName.innerHTML = `<span style="color: var(--accent-red);">${callStr} [DENIED]</span>`;
+        } else if (data.outcome_type === "RUNTIME_BLOCKED") {
+          toolName.innerHTML = `<span style="color: var(--accent-red);">${callStr} [BLOCKED]</span>`;
+        } else if (data.outcome_type === "SUCCESS_PERMITTED") {
+          toolName.innerHTML = `<span style="color: var(--accent-emerald);">${callStr} [PERMITTED]</span>`;
+        } else {
+          toolName.innerHTML = `<span style="color: var(--accent-cyan);">${callStr}</span>`;
+        }
+      } else {
+        toolName.innerHTML = `<span class="text-muted">None (Direct Response)</span>`;
+      }
+    }
+
+    // 5. Audit Record Hash
+    if (auditHash) {
+      const h = data.audit_hash || data.audit_event_id;
+      if (h && h.length >= 8) {
+        auditHash.innerHTML = `<span style="color: var(--accent-cyan); cursor: pointer;" title="SHA-256 Ledger Block Hash: ${h}">${h.substring(0, 16)}...</span>`;
+      } else {
+        auditHash.innerHTML = `<span class="text-muted">--</span>`;
+      }
+    }
+
+    // 6. Execution Trace Stages
+    if (traceCont && data.trace_stages && data.trace_stages.length > 0) {
       traceCont.innerHTML = "";
       data.trace_stages.forEach((stg) => {
         const box = document.createElement("div");
-        box.style.cssText = "background: rgba(0,0,0,0.25); border: 1px solid var(--card-border); border-radius: 4px; padding: 6px 10px; margin-bottom: 6px; font-size: 0.75rem;";
+        box.style.cssText = "background: rgba(0,0,0,0.03); border: 1px solid var(--card-border); border-radius: 4px; padding: 6px 10px; font-size: 0.74rem;";
         const timeStr = stg.timestamp ? new Date(stg.timestamp).toLocaleTimeString() : "--";
         const evidenceStr = JSON.stringify(stg.evidence, null, 2);
+
+        let stageColor = "var(--accent-blue)";
+        if (stg.stage.includes("DENIED") || stg.stage.includes("BLOCKED")) stageColor = "var(--accent-red)";
+        else if (stg.stage.includes("EXECUTED") || stg.stage.includes("PERMITTED")) stageColor = "var(--accent-emerald)";
+        else if (stg.stage.includes("PEP")) stageColor = data.pep_authorized ? "var(--accent-emerald)" : "var(--accent-red)";
+        else if (stg.stage.includes("AUDIT")) stageColor = "var(--accent-purple)";
+
         box.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <strong style="color:var(--accent-cyan);">[${stg.stage}]</strong>
-            <span style="color:var(--text-dim); font-size:0.7rem;">${timeStr}</span>
+            <strong style="color:${stageColor};">[${stg.stage}]</strong>
+            <span style="color:var(--text-dim); font-size:0.68rem;">${timeStr}</span>
           </div>
           <div style="color:var(--text-main); margin-top:2px;">${stg.description}</div>
           <details style="margin-top:4px;">
-            <summary style="cursor:pointer; color:var(--accent-amber); font-size:0.7rem;">View Verified Evidence</summary>
-            <pre style="margin:4px 0 0; padding:4px; background:rgba(0,0,0,0.5); border-radius:3px; font-size:0.7rem; color:#a5b4fc; overflow-x:auto;">${evidenceStr}</pre>
+            <summary style="cursor:pointer; color:var(--text-muted); font-size:0.68rem;">View Evidence</summary>
+            <pre style="margin:4px 0 0; padding:4px; background:#f1f5f9; border: 1px solid var(--card-border); border-radius:3px; font-size:0.68rem; color:#1e293b; overflow-x:auto;">${evidenceStr}</pre>
           </details>
         `;
         traceCont.appendChild(box);
       });
+    }
+
+    // 7. Telemetry Log
+    const term = document.getElementById("target-terminal-log");
+    if (term) {
+      const line = document.createElement("div");
+      line.innerText = `[${new Date().toLocaleTimeString()}] Outcome: ${data.outcome_type} | Model: ${data.model_name || data.target_model} | PEP: ${data.pep_authorized ? "AUTHORIZED" : "DENIED"} | Tool: ${data.tool_name || "None"} | Hash: ${data.audit_hash ? data.audit_hash.substring(0, 12) + "..." : "none"}`;
+      term.appendChild(line);
+      term.scrollTop = term.scrollHeight;
     }
   }
 
@@ -770,12 +848,28 @@ class AttackController {
         </div>
       `;
     }
-    const propTool = document.getElementById("tech-proposed-tool");
-    if (propTool) propTool.innerText = "None";
-    const toolStat = document.getElementById("tech-tool-status");
-    if (toolStat) toolStat.innerText = "IDLE";
-    const polDec = document.getElementById("tech-policy-decision");
-    if (polDec) polDec.innerText = "IDLE";
+    const statusBadge = document.getElementById("chat-exec-status");
+    if (statusBadge) {
+      statusBadge.innerText = "IDLE";
+      statusBadge.className = "badge badge-neutral";
+    }
+    const pepDec = document.getElementById("tech-pep-decision");
+    if (pepDec) {
+      pepDec.innerText = "NOT EVALUATED";
+      pepDec.className = "badge badge-neutral";
+    }
+    const toolName = document.getElementById("tech-tool-name");
+    if (toolName) toolName.innerHTML = "None";
+    const auditHash = document.getElementById("tech-audit-hash");
+    if (auditHash) auditHash.innerHTML = "--";
+    const traceCont = document.getElementById("chat-trace-stages");
+    if (traceCont) {
+      traceCont.innerHTML = `
+        <div class="text-muted" style="padding: 0.5rem; text-align: center; border: 1px dashed var(--card-border); border-radius: 4px;">
+          No execution recorded yet. Submit a message in the chat to observe verifiable stages.
+        </div>
+      `;
+    }
   }
 
   async fetchVoiceStatus() {

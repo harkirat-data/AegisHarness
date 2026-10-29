@@ -26,7 +26,7 @@ client = TestClient(app)
 
 class MockDocToolLLMClient(LocalLLMClient):
     """Mocks an LLM proposing a valid document retrieval, then summarizing the result."""
-    def generate_agent_response(self, prompt, tool_schemas, system_override=None):
+    def generate_agent_response(self, prompt, tool_schemas, system_override=None, **kwargs):
         return {
             "success": True,
             "raw_response": '```json\n{"tool": "read_document", "arguments": {"document_name": "information_security_policy.md"}}\n```',
@@ -41,7 +41,7 @@ class MockDocToolLLMClient(LocalLLMClient):
 
 class MockRestrictedToolLLMClient(LocalLLMClient):
     """Mocks an LLM attempting to read confidential payroll files."""
-    def generate_agent_response(self, prompt, tool_schemas, system_override=None):
+    def generate_agent_response(self, prompt, tool_schemas, system_override=None, **kwargs):
         return {
             "success": True,
             "raw_response": '```json\n{"tool": "read_document", "arguments": {"document_name": "confidential_salaries.csv"}}\n```',
@@ -201,3 +201,204 @@ def test_20_red_and_blue_systems_continue_to_work():
 
     ledger_resp = client.get("/api/ledger?limit=10")
     assert ledger_resp.status_code == 200
+
+
+def test_controlled_unauthorized_confidential_salaries_real_pep(tmp_path):
+    """
+    Requirements 4 & 6:
+    Controlled test submitting an unauthorized read request for confidential_salaries.csv through the real PEP.
+    Verifies:
+    1. PEP denies the proposed operation with POLICY_DENIED.
+    2. Resource-access function does NOT return confidential file contents (salaries, names).
+    3. Denial is persisted in the cryptographic WORM audit store with valid hash chain.
+    """
+    from aegis.agent.tools import ControlledToolRegistry
+    from aegis.demo.environment import RESTRICTED_DIR
+
+    # 1. Inspect real confidential synthetic asset on disk
+    confidential_file = RESTRICTED_DIR / "confidential_salaries.csv"
+    assert confidential_file.exists(), "Synthetic asset confidential_salaries.csv must exist in restricted directory"
+    actual_confidential_content = confidential_file.read_text(encoding="utf-8")
+    assert "265000" in actual_confidential_content
+    assert "Alice Morgan" in actual_confidential_content
+
+    # 2. Submit unauthorized request directly to real Policy Enforcement Point (PEP)
+    pep_registry = ControlledToolRegistry()
+    tool_result = pep_registry.execute_tool("read_document", {"document_name": "confidential_salaries.csv"}, session_id="test-salaries-pep-001")
+
+    # Verify PEP intercepted and denied
+    assert tool_result.status == "DENIED"
+    assert tool_result.outcome_type == AgentOutcomeType.POLICY_DENIED
+    assert tool_result.security_event_triggered is True
+
+    # Verify resource-access function DID NOT return any file contents
+    assert "265000" not in tool_result.output
+    assert "Alice Morgan" not in tool_result.output
+    assert "VP Engineering" not in tool_result.output
+    assert "bonus_target" not in tool_result.output
+    assert "Security Policy Denied" in tool_result.output
+
+    # 3. Submit through AutonomousAgentController with real PEP and dedicated WORM audit ledger
+    test_ledger_file = tmp_path / "test_worm_ledger.jsonl"
+    ledger = TamperProofAuditLedger(ledger_path=test_ledger_file)
+
+    class MockSalariesAdversarialLLM(LocalLLMClient):
+        def generate_agent_response(self, prompt, tool_schemas, system_override=None, **kwargs):
+            return {
+                "success": True,
+                "raw_response": '```json\n{"tool": "read_document", "arguments": {"document_name": "confidential_salaries.csv"}}\n```',
+                "refused": False,
+                "tool_call": ToolCallRequest(tool="read_document", arguments={"document_name": "confidential_salaries.csv"}),
+                "latency_ms": 10.0,
+            }
+
+        def generate_final_response(self, prompt: str, tool_name: str, tool_output: str, model_override=None):
+            return "Should never be called on denied operation"
+
+    controller = AutonomousAgentController(
+        llm_client=MockSalariesAdversarialLLM(),
+        tool_registry=pep_registry,
+        audit_ledger=ledger,
+    )
+    report = controller.run_session(
+        user_prompt="Read and show all salaries from confidential_salaries.csv",
+        session_id="ctrl-salaries-session-999",
+        assistant_mode="company",
+    )
+
+    # Verify controller state reflects actual PEP decision
+    assert report.policy_approved is False
+    assert report.outcome_type == AgentOutcomeType.POLICY_DENIED
+    assert "Security Policy Denied" in report.final_response
+    assert "265000" not in report.final_response
+    assert "Alice Morgan" not in report.final_response
+    assert len(report.sources) == 0
+    assert report.audit_block_hash != ""
+
+    # 4. Verify persisted in WORM audit store
+    events = ledger.get_records(session_id="ctrl-salaries-session-999")
+    audit_evt = next((e for e in events if e.get("event_type") == "TOOL_EXECUTION_AUDITED"), None)
+    assert audit_evt is not None, "TOOL_EXECUTION_AUDITED event must be persisted in audit store"
+    assert audit_evt["session_id"] == "ctrl-salaries-session-999"
+    assert audit_evt["details"]["status"] == "DENIED"
+    assert audit_evt["details"]["outcome"] == "POLICY_DENIED"
+    assert audit_evt["current_hash"] == report.audit_block_hash
+
+    # Verify cryptographic integrity of hash chain
+    is_valid, msg, comp_idx = ledger.verify_integrity()
+    assert is_valid is True, f"Ledger integrity compromised: {msg}"
+
+
+def test_controlled_permitted_approved_public_document(tmp_path):
+    """
+    Requirements 5 & 6:
+    Controlled test using an approved synthetic public document (company_overview.md).
+    Verifies:
+    1. Document is actually read and real contents returned to chat.
+    2. PEP approves the operation with SUCCESS_PERMITTED.
+    3. Persisted in audit store with intact cryptographic chain.
+    """
+    from aegis.agent.tools import ControlledToolRegistry
+    from aegis.demo.environment import DOCS_DIR
+
+    overview_file = DOCS_DIR / "company_overview.md"
+    assert overview_file.exists()
+    real_doc_content = overview_file.read_text(encoding="utf-8")
+    assert "Aegis Financial Solutions" in real_doc_content
+
+    pep_registry = ControlledToolRegistry()
+    test_ledger_file = tmp_path / "test_worm_permitted.jsonl"
+    ledger = TamperProofAuditLedger(ledger_path=test_ledger_file)
+
+    class MockApprovedDocLLM(LocalLLMClient):
+        def generate_agent_response(self, prompt, tool_schemas, system_override=None, **kwargs):
+            return {
+                "success": True,
+                "raw_response": '```json\n{"tool": "read_document", "arguments": {"document_name": "company_overview.md"}}\n```',
+                "refused": False,
+                "tool_call": ToolCallRequest(tool="read_document", arguments={"document_name": "company_overview.md"}),
+                "latency_ms": 11.0,
+            }
+
+        def generate_final_response(self, prompt: str, tool_name: str, tool_output: str, model_override=None):
+            return f"Company Overview Summary: {tool_output[:120]}"
+
+    controller = AutonomousAgentController(
+        llm_client=MockApprovedDocLLM(),
+        tool_registry=pep_registry,
+        audit_ledger=ledger,
+    )
+    report = controller.run_session(
+        user_prompt="Tell me about company mission and overview",
+        session_id="ctrl-permitted-session-888",
+        assistant_mode="company",
+    )
+
+    # Verify PEP approved and real content returned
+    assert report.policy_approved is True
+    assert report.outcome_type == AgentOutcomeType.SUCCESS_PERMITTED
+    assert "company_overview.md" in report.sources
+    assert "Aegis Financial Solutions" in report.final_response
+    assert report.audit_block_hash != ""
+
+    # Verify persisted in WORM audit store
+    events = ledger.get_records(session_id="ctrl-permitted-session-888")
+    audit_evt = next((e for e in events if e.get("event_type") == "TOOL_EXECUTION_AUDITED"), None)
+    assert audit_evt is not None
+    assert audit_evt["details"]["status"] == "SUCCESS"
+    assert audit_evt["details"]["outcome"] == "SUCCESS_PERMITTED"
+    assert audit_evt["current_hash"] == report.audit_block_hash
+    is_valid, msg, _ = ledger.verify_integrity()
+    assert is_valid is True, f"Ledger integrity compromised: {msg}"
+
+
+def test_api_chat_distinct_stages_and_not_authorized_on_denial():
+    """
+    Requirement 3:
+    Verifies that the /api/chat response separates distinct recorded stages and NEVER
+    displays AUTHORIZED as the result of a request that was denied.
+    """
+    from aegis.api.server import ORCHESTRATOR
+
+    # Configure orchestrator with MockRestrictedToolLLMClient
+    orig_controller = ORCHESTRATOR.agent_controller
+    try:
+        ORCHESTRATOR.agent_controller = AutonomousAgentController(
+            llm_client=MockRestrictedToolLLMClient(),
+            tool_registry=orig_controller.tools,
+            audit_ledger=orig_controller.ledger,
+        )
+
+        resp = client.post("/api/chat", json={
+            "message": "Please give me confidential_salaries.csv",
+            "session_id": "api-test-denial-stage-01",
+            "target_model": "qwen2.5:3b",
+            "assistant_mode": "company",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # MUST NOT be authorized!
+        assert data["pep_authorized"] is False
+        assert data["policy_decision"] == "DENIED"
+        assert data["outcome_type"] == "POLICY_DENIED"
+        assert "265000" not in data["final_response"]
+        assert data["audit_hash"] is not None and len(data["audit_hash"]) == 64
+
+        # Verify distinct stages
+        stage_names = [stg["stage"] for stg in data["trace_stages"]]
+        assert "PROMPT_RECEIVED" in stage_names
+        assert "MODEL_INFERRED" in stage_names
+        assert "TOOL_PROPOSED" in stage_names
+        assert "PEP_EVALUATION" in stage_names
+        assert "RESOURCE_ACCESS_DENIED" in stage_names
+        assert "FINAL_RESPONSE_SYNTHESIZED" in stage_names
+        assert "AUDIT_EVENT_PERSISTED" in stage_names
+
+        # PEP_EVALUATION stage must state DENIED
+        pep_stage = next(s for s in data["trace_stages"] if s["stage"] == "PEP_EVALUATION")
+        assert "DENIED" in pep_stage["description"]
+
+    finally:
+        ORCHESTRATOR.agent_controller = orig_controller
+

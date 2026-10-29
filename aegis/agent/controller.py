@@ -30,7 +30,7 @@ class AutonomousAgentController:
     ):
         self.llm = llm_client or LocalLLMClient()
         self.tools = tool_registry or ControlledToolRegistry()
-        self.ledger = audit_ledger
+        self.ledger = audit_ledger if audit_ledger is not None else TamperProofAuditLedger()
         self.threat_detector = threat_detector or ThreatDetector()
         self.on_quarantine = on_quarantine_callback
         self.max_iterations = max_iterations
@@ -142,7 +142,7 @@ class AutonomousAgentController:
                 "In Company Assistant mode, I can help you search company policies, review the employee handbook, "
                 "or query customer directories. How can I assist you today?"
             )
-            self._log(sid, "TARGET", "GREETING_HANDLED", ThreatSeverity.SEV4_INFO.value, {
+            rec = self._log(sid, "TARGET", "GREETING_HANDLED", ThreatSeverity.SEV4_INFO.value, {
                 "prompt": user_prompt,
                 "target_model": active_model,
             })
@@ -150,6 +150,7 @@ class AutonomousAgentController:
                 sid, user_prompt, greeting_msg, AgentOutcomeType.SUCCESS_PERMITTED,
                 "Greeting handled directly without tool call.",
                 model_name=active_model, final_response=greeting_msg,
+                audit_block_hash=rec.current_hash if rec else "",
                 assistant_mode=assistant_mode, scope_status="IN_SCOPE_COMPANY" if assistant_mode == "company" else "IN_SCOPE_GENERAL",
             )
 
@@ -159,7 +160,7 @@ class AutonomousAgentController:
                     "I could not understand your request. Please clarify what company policy, "
                     "document, customer record, or business service you need assistance with."
                 )
-                self._log(sid, "TARGET", "UNCLEAR_INPUT_HANDLED", ThreatSeverity.SEV4_INFO.value, {
+                rec = self._log(sid, "TARGET", "UNCLEAR_INPUT_HANDLED", ThreatSeverity.SEV4_INFO.value, {
                     "prompt": user_prompt,
                     "target_model": active_model,
                 })
@@ -167,6 +168,7 @@ class AutonomousAgentController:
                     sid, user_prompt, clarification_msg, AgentOutcomeType.SUCCESS_PERMITTED,
                     "Input was unclear; clarification requested.",
                     model_name=active_model, final_response=clarification_msg,
+                    audit_block_hash=rec.current_hash if rec else "",
                     assistant_mode=assistant_mode, scope_status="UNCLEAR",
                 )
 
@@ -176,7 +178,7 @@ class AutonomousAgentController:
                     "I am specialized in company documents, policies, customer records, and internal business services. "
                     "Please switch to General Assistant mode if you wish to ask general-knowledge questions."
                 )
-                self._log(sid, "TARGET", "OUT_OF_SCOPE_HANDLED", ThreatSeverity.SEV4_INFO.value, {
+                rec = self._log(sid, "TARGET", "OUT_OF_SCOPE_HANDLED", ThreatSeverity.SEV4_INFO.value, {
                     "prompt": user_prompt,
                     "target_model": active_model,
                 })
@@ -184,6 +186,7 @@ class AutonomousAgentController:
                     sid, user_prompt, scope_msg, AgentOutcomeType.SUCCESS_PERMITTED,
                     "General-knowledge question outside Company Assistant scope.",
                     model_name=active_model, final_response=scope_msg,
+                    audit_block_hash=rec.current_hash if rec else "",
                     assistant_mode=assistant_mode, scope_status="OUT_OF_SCOPE",
                 )
 
@@ -210,7 +213,7 @@ class AutonomousAgentController:
         )
         if not llm_res.get("success", False):
             err = llm_res.get("error", "Unknown inference error")
-            self._log(sid, "TARGET", "INFERENCE_ERROR", ThreatSeverity.SEV3_MEDIUM.value, {
+            rec = self._log(sid, "TARGET", "INFERENCE_ERROR", ThreatSeverity.SEV3_MEDIUM.value, {
                 "error": err,
                 "latency_ms": llm_res.get("latency_ms", 0.0),
                 "target_model": active_model,
@@ -218,30 +221,33 @@ class AutonomousAgentController:
             return self._report(
                 sid, user_prompt, err, AgentOutcomeType.EXECUTION_ERROR, err,
                 model_name=active_model, final_response=err, assistant_mode=assistant_mode,
+                audit_block_hash=rec.current_hash if rec else "",
             )
 
         raw, is_refusal, tool_call = llm_res.get("raw_response", ""), llm_res.get("refused", False), llm_res.get("tool_call")
 
         # Step 3: Model safety refusal vs direct response
         if is_refusal and not tool_call:
-            self._log(sid, "TARGET", "MODEL_REFUSAL", ThreatSeverity.SEV4_INFO.value, {
+            rec = self._log(sid, "TARGET", "MODEL_REFUSAL", ThreatSeverity.SEV4_INFO.value, {
                 "model": active_model, "raw_response": raw[:300], "inference_latency_ms": llm_res.get("latency_ms", 0.0),
             })
             return self._report(
                 sid, user_prompt, raw, AgentOutcomeType.MODEL_REFUSAL,
                 "Model intrinsic safety guardrails refused adversarial request before tool execution.",
                 model_refused=True, model_name=active_model, final_response=raw,
+                audit_block_hash=rec.current_hash if rec else "",
                 assistant_mode=assistant_mode, scope_status="REFUSED",
             )
 
         if not tool_call:
-            self._log(sid, "TARGET", "DIRECT_RESPONSE", ThreatSeverity.SEV4_INFO.value, {
+            rec = self._log(sid, "TARGET", "DIRECT_RESPONSE", ThreatSeverity.SEV4_INFO.value, {
                 "response": raw[:300], "target_model": active_model,
             })
             return self._report(
                 sid, user_prompt, raw, AgentOutcomeType.SUCCESS_PERMITTED,
                 "Direct informational response generated with no tool execution required.",
                 policy_approved=True, model_name=active_model, final_response=raw,
+                audit_block_hash=rec.current_hash if rec else "",
                 assistant_mode=assistant_mode,
             )
 

@@ -344,7 +344,7 @@ async def chat_endpoint(req: ChatRequest):
     tool_status = report.tool_result.status if report.tool_result else None
     tool_preview = report.tool_result.output[:300] if report.tool_result else None
 
-    # Construct trace stages for technical execution observation panel
+    # Construct distinct verifiable trace stages for technical execution observation panel
     trace_stages = [
         {
             "stage": "PROMPT_RECEIVED",
@@ -356,29 +356,79 @@ async def chat_endpoint(req: ChatRequest):
             "stage": "MODEL_INFERRED",
             "timestamp": now_iso,
             "description": f"Model {report.model_name} generated response.",
-            "evidence": {"raw_preview": report.model_response_raw[:200], "has_tool_proposal": bool(report.proposed_tool_call)},
+            "evidence": {"raw_preview": report.model_response_raw[:200], "has_tool_proposal": bool(report.proposed_tool_call), "refused": report.model_refused},
         },
     ]
+
+    if report.model_refused:
+        trace_stages.append({
+            "stage": "MODEL_REFUSAL",
+            "timestamp": now_iso,
+            "description": "Model safety guardrails refused adversarial request without proposing tools.",
+            "evidence": {"raw_response": report.model_response_raw[:200]},
+        })
+
     if report.proposed_tool_call:
+        trace_stages.append({
+            "stage": "TOOL_PROPOSED",
+            "timestamp": now_iso,
+            "description": f"Model proposed tool invocation: {report.proposed_tool_call.tool}",
+            "evidence": {"tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments},
+        })
         trace_stages.append({
             "stage": "PEP_EVALUATION",
             "timestamp": now_iso,
-            "description": f"Zero-Trust PEP decision: {'AUTHORIZED' if report.policy_approved else 'DENIED'}",
+            "description": f"Zero-Trust PEP Decision: {'AUTHORIZED' if report.policy_approved else 'DENIED'}",
             "evidence": {"tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments, "policy_reason": report.policy_reason},
         })
+
     if report.tool_result:
-        trace_stages.append({
-            "stage": "TOOL_EXECUTED",
-            "timestamp": now_iso,
-            "description": f"Tool '{report.tool_result.tool}' completed with status {report.tool_result.status}.",
-            "evidence": {"execution_time_ms": report.tool_result.execution_time_ms, "output_preview": tool_preview},
-        })
+        if report.tool_result.status == "SUCCESS":
+            trace_stages.append({
+                "stage": "RESOURCE_ACCESS_PERMITTED",
+                "timestamp": now_iso,
+                "description": f"Authorized resource access completed via '{report.tool_result.tool}'.",
+                "evidence": {"execution_time_ms": report.tool_result.execution_time_ms, "output_preview": tool_preview},
+            })
+        elif report.outcome_type.value == "POLICY_DENIED":
+            trace_stages.append({
+                "stage": "RESOURCE_ACCESS_DENIED",
+                "timestamp": now_iso,
+                "description": f"Zero-Trust PEP intercepted and blocked unauthorized access to '{report.tool_result.tool}'.",
+                "evidence": {"tool": report.tool_result.tool, "reason": report.tool_result.output, "security_event": report.tool_result.security_event_triggered},
+            })
+        else:
+            trace_stages.append({
+                "stage": "RUNTIME_BLOCKED",
+                "timestamp": now_iso,
+                "description": f"Runtime containment boundary stopped '{report.tool_result.tool}'.",
+                "evidence": {"tool": report.tool_result.tool, "reason": report.tool_result.output},
+            })
+
     trace_stages.append({
         "stage": "FINAL_RESPONSE_SYNTHESIZED",
         "timestamp": now_iso,
         "description": "Natural language response synthesized from verified evidence.",
-        "evidence": {"final_response_preview": report.final_response[:200], "sources": report.sources, "audit_hash": report.audit_block_hash},
+        "evidence": {"final_response_preview": report.final_response[:200], "sources": report.sources},
     })
+
+    if report.audit_block_hash:
+        trace_stages.append({
+            "stage": "AUDIT_EVENT_PERSISTED",
+            "timestamp": now_iso,
+            "description": f"Cryptographic record committed to WORM ledger (Hash: {report.audit_block_hash[:16]}...)",
+            "evidence": {"session_id": session_id, "audit_hash": report.audit_block_hash},
+        })
+
+    if report.proposed_tool_call:
+        pep_auth = report.policy_approved
+        pol_dec = "ALLOWED" if report.policy_approved else "DENIED"
+    elif report.model_refused:
+        pep_auth = None
+        pol_dec = "NOT_REACHED_REFUSAL"
+    else:
+        pep_auth = None
+        pol_dec = "NOT_REQUIRED"
 
     return ChatResponse(
         session_id=session_id,
@@ -395,8 +445,8 @@ async def chat_endpoint(req: ChatRequest):
         tool_name=tool_name,
         tool_status=tool_status,
         tool_output_preview=tool_preview,
-        policy_decision="ALLOWED" if report.policy_approved else "DENIED",
-        pep_authorized=report.policy_approved,
+        policy_decision=pol_dec,
+        pep_authorized=pep_auth,
         pep_reason=report.policy_reason,
         outcome_type=report.outcome_type.value,
         audit_hash=report.audit_block_hash,

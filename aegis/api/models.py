@@ -182,7 +182,7 @@ class ChatResponse(BaseModel):
     tool_status: Optional[str] = None
     tool_output_preview: Optional[str] = None
     policy_decision: Optional[str] = None
-    pep_authorized: bool = True
+    pep_authorized: Optional[bool] = None
     pep_reason: str = ""
     outcome_type: str = "SUCCESS_PERMITTED"
     audit_hash: Optional[str] = None
