@@ -54,3 +54,13 @@ class AgentExecutionReport(BaseModel):
     sources: List[str] = Field(default_factory=list)
     assistant_mode: str = "company"
     scope_status: str = "IN_SCOPE"
+    execution_id: str = ""
+    timestamp: str = ""
+    model_decision: str = "NOT EXECUTED"
+    pep_decision: str = "NOT EXECUTED"
+    tool_invocation: str = "NOT EXECUTED"
+    resource_access_outcome: str = "NOT EXECUTED"
+    runtime_containment: str = "NOT EXECUTED"
+    audit_persistence: str = "NOT EXECUTED"
+    audit_block_index: Optional[int] = None
+    runtime_isolation_claim: str = "NONE_VERIFIED"

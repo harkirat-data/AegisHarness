@@ -633,6 +633,7 @@ class AttackController {
 
     const modelSelector = document.getElementById("global-model-selector");
     const targetModel = modelSelector ? modelSelector.value : "qwen2.5:3b";
+    const executionId = `exec-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
     try {
       const res = await fetch("/api/chat", {
@@ -641,6 +642,7 @@ class AttackController {
         body: JSON.stringify({
           message: prompt,
           session_id: this.chatSessionId,
+          execution_id: executionId,
           target_model: targetModel,
           assistant_mode: this.chatAssistantMode,
         }),
@@ -648,7 +650,10 @@ class AttackController {
 
       if (res.ok) {
         const data = await res.json();
-        this.appendChatMessage("assistant", data.final_response, data.sources, data.tool_status);
+        if (!this.chatExecutions) this.chatExecutions = new Map();
+        this.chatExecutions.set(data.execution_id, data);
+
+        this.appendChatMessage("assistant", data.final_response, data.sources, data.tool_status, data);
         this.updateTechnicalPanel(data);
         if (window.aegisDashboard) {
           window.aegisDashboard.refreshLedgerStatus();
@@ -667,7 +672,7 @@ class AttackController {
     }
   }
 
-  appendChatMessage(sender, text, sources = [], toolStatus = null) {
+  appendChatMessage(sender, text, sources = [], toolStatus = null, execData = null) {
     const messages = document.getElementById("chat-messages");
     if (!messages) return;
 
@@ -676,6 +681,22 @@ class AttackController {
 
     const bubble = document.createElement("div");
     bubble.className = sender === "user" ? "chat-bubble-user" : "chat-bubble-assistant";
+
+    let execHeader = "";
+    if (execData && execData.execution_id) {
+      bubble.style.cursor = "pointer";
+      bubble.title = `Click to inspect verifiable evidence for execution ${execData.execution_id}`;
+      bubble.onclick = () => {
+        const d = (this.chatExecutions && this.chatExecutions.get(execData.execution_id)) || execData;
+        this.updateTechnicalPanel(d);
+      };
+      execHeader = `
+        <div style="font-size: 0.62rem; color: var(--accent-cyan); font-family: monospace; margin-bottom: 4px; display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 2px;">
+          <span>[EXEC: ${execData.execution_id}]</span>
+          <span>${execData.timestamp ? new Date(execData.timestamp).toLocaleTimeString() : ""}</span>
+        </div>
+      `;
+    }
 
     let sourcesHtml = "";
     if (sources && sources.length > 0) {
@@ -692,12 +713,12 @@ class AttackController {
     let statusBadge = "";
     if (toolStatus && toolStatus !== "NO_TOOL_PROPOSED") {
       const isDenied = toolStatus.includes("DENIED");
-      const isSuccess = toolStatus === "EXECUTED_ALLOWED";
+      const isSuccess = toolStatus === "EXECUTED_ALLOWED" || toolStatus === "SUCCESS";
       statusBadge = `<div style="margin-bottom: 6px;"><span class="badge ${isDenied ? 'badge-blocked' : (isSuccess ? 'badge-permitted' : 'badge-neutral')}" style="font-size: 0.68rem;">TOOL: ${toolStatus}</span></div>`;
     }
 
     const formattedText = text ? text.replace(/\n\n/g, "<br/><br/>").replace(/\n/g, "<br/>") : "";
-    bubble.innerHTML = `${statusBadge}<div>${formattedText}</div>${sourcesHtml}`;
+    bubble.innerHTML = `${execHeader}${statusBadge}<div>${formattedText}</div>${sourcesHtml}`;
 
     row.appendChild(bubble);
     messages.appendChild(row);
@@ -705,11 +726,20 @@ class AttackController {
   }
 
   updateTechnicalPanel(data) {
+    if (!data) return;
+
     const statusBadge = document.getElementById("chat-exec-status");
+    const execIdEl = document.getElementById("tech-exec-id");
+    const execTimeEl = document.getElementById("tech-exec-time");
     const activeModel = document.getElementById("tech-active-model");
+    const modelDec = document.getElementById("tech-model-decision");
     const pepDec = document.getElementById("tech-pep-decision");
     const toolName = document.getElementById("tech-tool-name");
+    const resAccess = document.getElementById("tech-resource-access");
+    const runtimeCont = document.getElementById("tech-runtime-containment");
+    const auditPersist = document.getElementById("tech-audit-persistence");
     const auditHash = document.getElementById("tech-audit-hash");
+    const isolClaim = document.getElementById("tech-isolation-claim");
     const traceCont = document.getElementById("chat-trace-stages");
 
     // 1. Overall execution status badge
@@ -727,74 +757,94 @@ class AttackController {
       }
     }
 
-    // 2. Active Model
+    // 2. Execution ID & Timestamp correlation
+    if (execIdEl) {
+      execIdEl.innerText = data.execution_id || "NOT VERIFIED";
+      execIdEl.title = `Correlated Execution ID: ${data.execution_id || "--"}`;
+    }
+    if (execTimeEl) {
+      execTimeEl.innerText = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : "--";
+    }
+
+    // 3. Active Model
     if (activeModel) {
       activeModel.innerText = data.model_name || data.target_model || "--";
     }
 
-    // 3. PEP Decision
+    // 4. Model Decision
+    if (modelDec) {
+      const dec = data.model_decision || "NOT EXECUTED";
+      modelDec.innerText = dec;
+      if (dec === "TOOL_PROPOSED") modelDec.className = "badge badge-permitted";
+      else if (dec === "MODEL_REFUSAL") modelDec.className = "badge badge-neutral";
+      else if (dec === "DIRECT_RESPONSE") modelDec.className = "badge badge-neutral";
+      else if (dec === "INFERENCE_ERROR") modelDec.className = "badge badge-blocked";
+      else modelDec.className = "badge badge-neutral";
+    }
+
+    // 5. PEP Decision
     if (pepDec) {
-      if (data.outcome_type === "POLICY_DENIED") {
-        pepDec.innerText = "DENIED";
-        pepDec.className = "badge badge-blocked";
-      } else if (data.outcome_type === "RUNTIME_BLOCKED") {
-        pepDec.innerText = "RUNTIME BLOCKED";
-        pepDec.className = "badge badge-blocked";
-      } else if (data.outcome_type === "MODEL_REFUSAL") {
-        pepDec.innerText = "NOT REACHED (REFUSED)";
-        pepDec.className = "badge badge-neutral";
-      } else if (data.pep_authorized === true && (data.tool_name || data.tool_executed)) {
-        pepDec.innerText = "AUTHORIZED";
-        pepDec.className = "badge badge-permitted";
-      } else if (data.tool_proposal && !data.pep_authorized) {
-        pepDec.innerText = "DENIED";
-        pepDec.className = "badge badge-blocked";
-      } else {
-        pepDec.innerText = "NOT REQUIRED (DIRECT)";
-        pepDec.className = "badge badge-neutral";
-      }
+      const pep = data.pep_decision || "NOT EXECUTED";
+      pepDec.innerText = pep;
+      if (pep === "AUTHORIZED") pepDec.className = "badge badge-permitted";
+      else if (pep === "DENIED") pepDec.className = "badge badge-blocked";
+      else pepDec.className = "badge badge-neutral";
     }
 
-    // 4. Tool Invoked
+    // 6. Tool Invocation
     if (toolName) {
-      const tool = data.tool_name || data.tool_executed || (data.tool_proposal ? data.tool_proposal.tool : null);
-      if (tool) {
-        let argStr = "";
-        const args = (data.tool_proposal && data.tool_proposal.arguments) || {};
-        if (args.document_name) argStr = args.document_name;
-        else if (args.path) argStr = args.path;
-        else if (args.query) argStr = args.query;
-        else if (args.code) argStr = "code snippet";
-        else if (args.command) argStr = args.command;
-        else if (args.url) argStr = args.url;
-        else if (Object.keys(args).length > 0) argStr = JSON.stringify(args);
-
-        const callStr = argStr ? `${tool}(${argStr})` : `${tool}()`;
-        if (data.outcome_type === "POLICY_DENIED") {
-          toolName.innerHTML = `<span style="color: var(--accent-red);">${callStr} [DENIED]</span>`;
-        } else if (data.outcome_type === "RUNTIME_BLOCKED") {
-          toolName.innerHTML = `<span style="color: var(--accent-red);">${callStr} [BLOCKED]</span>`;
-        } else if (data.outcome_type === "SUCCESS_PERMITTED") {
-          toolName.innerHTML = `<span style="color: var(--accent-emerald);">${callStr} [PERMITTED]</span>`;
-        } else {
-          toolName.innerHTML = `<span style="color: var(--accent-cyan);">${callStr}</span>`;
-        }
+      const toolInv = data.tool_invocation || "NOT EXECUTED";
+      if (toolInv !== "NOT EXECUTED") {
+        const isDenied = data.pep_decision === "DENIED" || data.resource_access_outcome === "ACCESS_DENIED";
+        toolName.innerHTML = `<span style="color: ${isDenied ? 'var(--accent-red)' : 'var(--accent-emerald)'};" title="${toolInv}">${toolInv}</span>`;
       } else {
-        toolName.innerHTML = `<span class="text-muted">None (Direct Response)</span>`;
+        toolName.innerHTML = `<span class="text-muted">NOT EXECUTED</span>`;
       }
     }
 
-    // 5. Audit Record Hash
+    // 7. Resource-Access Outcome
+    if (resAccess) {
+      const res = data.resource_access_outcome || "NOT EXECUTED";
+      resAccess.innerText = res;
+      if (res === "ACCESS_PERMITTED") resAccess.className = "badge badge-permitted";
+      else if (res === "ACCESS_DENIED") resAccess.className = "badge badge-blocked";
+      else resAccess.className = "badge badge-neutral";
+    }
+
+    // 8. Runtime Containment
+    if (runtimeCont) {
+      const rtc = data.runtime_containment || "NOT EXECUTED";
+      runtimeCont.innerText = rtc;
+      if (rtc === "APPLICATION_PEP_BLOCKED" || rtc === "RUNTIME_BLOCKED") runtimeCont.className = "badge badge-blocked";
+      else if (rtc === "CONTAINER_SLAUGHTERED") runtimeCont.className = "badge badge-blocked";
+      else runtimeCont.className = "badge badge-neutral";
+    }
+
+    // 9. Audit Persistence
+    if (auditPersist) {
+      const ap = data.audit_persistence || (data.audit_hash ? "COMMITTED" : "NOT EXECUTED");
+      auditPersist.innerText = ap;
+      if (ap === "COMMITTED") auditPersist.className = "badge badge-permitted";
+      else if (ap === "NOT PERSISTED") auditPersist.className = "badge badge-blocked";
+      else auditPersist.className = "badge badge-neutral";
+    }
+
+    // 10. Audit Record Hash
     if (auditHash) {
       const h = data.audit_hash || data.audit_event_id;
       if (h && h.length >= 8) {
-        auditHash.innerHTML = `<span style="color: var(--accent-cyan); cursor: pointer;" title="SHA-256 Ledger Block Hash: ${h}">${h.substring(0, 16)}...</span>`;
+        auditHash.innerHTML = `<span style="color: var(--accent-cyan); cursor: pointer;" title="SHA-256 Ledger Block Hash: ${h} (Block #${data.audit_block_index != null ? data.audit_block_index : '--'})">${h.substring(0, 16)}...</span>`;
       } else {
         auditHash.innerHTML = `<span class="text-muted">--</span>`;
       }
     }
 
-    // 6. Execution Trace Stages
+    // 11. Isolation Claim
+    if (isolClaim) {
+      isolClaim.innerText = data.runtime_isolation_claim || "APPLICATION_LEVEL_PEP";
+    }
+
+    // 12. Execution Trace Stages
     if (traceCont && data.trace_stages && data.trace_stages.length > 0) {
       traceCont.innerHTML = "";
       data.trace_stages.forEach((stg) => {
@@ -816,7 +866,7 @@ class AttackController {
           </div>
           <div style="color:var(--text-main); margin-top:2px;">${stg.description}</div>
           <details style="margin-top:4px;">
-            <summary style="cursor:pointer; color:var(--text-muted); font-size:0.68rem;">View Evidence</summary>
+            <summary style="cursor:pointer; color:var(--text-muted); font-size:0.68rem;">View Evidence Payload</summary>
             <pre style="margin:4px 0 0; padding:4px; background:#f1f5f9; border: 1px solid var(--card-border); border-radius:3px; font-size:0.68rem; color:#1e293b; overflow-x:auto;">${evidenceStr}</pre>
           </details>
         `;
@@ -824,11 +874,11 @@ class AttackController {
       });
     }
 
-    // 7. Telemetry Log
+    // 13. Correlated Telemetry Log Line
     const term = document.getElementById("target-terminal-log");
     if (term) {
       const line = document.createElement("div");
-      line.innerText = `[${new Date().toLocaleTimeString()}] Outcome: ${data.outcome_type} | Model: ${data.model_name || data.target_model} | PEP: ${data.pep_authorized ? "AUTHORIZED" : "DENIED"} | Tool: ${data.tool_name || "None"} | Hash: ${data.audit_hash ? data.audit_hash.substring(0, 12) + "..." : "none"}`;
+      line.innerText = `[${new Date().toLocaleTimeString()}] [EXEC: ${data.execution_id || 'unknown'}] Chat Turn | Model: ${data.model_decision} | PEP: ${data.pep_decision} | Access: ${data.resource_access_outcome} | Containment: ${data.runtime_containment} | Ledger Hash: ${data.audit_hash ? data.audit_hash.substring(0, 12) + "..." : "none"}`;
       term.appendChild(line);
       term.scrollTop = term.scrollHeight;
     }
@@ -836,6 +886,8 @@ class AttackController {
 
   resetChat() {
     this.chatSessionId = `chat-${Date.now()}`;
+    if (this.chatExecutions) this.chatExecutions.clear();
+
     const messages = document.getElementById("chat-messages");
     if (messages) {
       messages.innerHTML = `
@@ -853,15 +905,42 @@ class AttackController {
       statusBadge.innerText = "IDLE";
       statusBadge.className = "badge badge-neutral";
     }
+    const execIdEl = document.getElementById("tech-exec-id");
+    if (execIdEl) execIdEl.innerText = "NOT EXECUTED";
+    const execTimeEl = document.getElementById("tech-exec-time");
+    if (execTimeEl) execTimeEl.innerText = "--";
+    const modelDec = document.getElementById("tech-model-decision");
+    if (modelDec) {
+      modelDec.innerText = "NOT EXECUTED";
+      modelDec.className = "badge badge-neutral";
+    }
     const pepDec = document.getElementById("tech-pep-decision");
     if (pepDec) {
-      pepDec.innerText = "NOT EVALUATED";
+      pepDec.innerText = "NOT EXECUTED";
       pepDec.className = "badge badge-neutral";
     }
     const toolName = document.getElementById("tech-tool-name");
-    if (toolName) toolName.innerHTML = "None";
+    if (toolName) toolName.innerHTML = "NOT EXECUTED";
+    const resAccess = document.getElementById("tech-resource-access");
+    if (resAccess) {
+      resAccess.innerText = "NOT EXECUTED";
+      resAccess.className = "badge badge-neutral";
+    }
+    const runtimeCont = document.getElementById("tech-runtime-containment");
+    if (runtimeCont) {
+      runtimeCont.innerText = "NOT EXECUTED";
+      runtimeCont.className = "badge badge-neutral";
+    }
+    const auditPersist = document.getElementById("tech-audit-persistence");
+    if (auditPersist) {
+      auditPersist.innerText = "NOT EXECUTED";
+      auditPersist.className = "badge badge-neutral";
+    }
     const auditHash = document.getElementById("tech-audit-hash");
     if (auditHash) auditHash.innerHTML = "--";
+    const isolClaim = document.getElementById("tech-isolation-claim");
+    if (isolClaim) isolClaim.innerText = "APPLICATION_LEVEL_PEP";
+
     const traceCont = document.getElementById("chat-trace-stages");
     if (traceCont) {
       traceCont.innerHTML = `

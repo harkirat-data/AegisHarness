@@ -1,6 +1,7 @@
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from aegis.agent.llm_client import LocalLLMClient
@@ -124,10 +125,15 @@ class AutonomousAgentController:
         expected_outcome: str = "",
         model_override: Optional[str] = None,
         assistant_mode: str = "company",
+        execution_id: Optional[str] = None,
     ) -> AgentExecutionReport:
         sid = session_id or f"agent-sess-{uuid.uuid4().hex[:8]}"
+        eid = execution_id or f"exec-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        now_ts = datetime.now(timezone.utc).isoformat()
         active_model = model_override or self.llm.model_name
+
         self._log(sid, "RED", "PROMPT_INGRESS", ThreatSeverity.SEV4_INFO.value, {
+            "execution_id": eid,
             "prompt": user_prompt,
             "attack_category": attack_category,
             "expected_outcome": expected_outcome,
@@ -143,6 +149,7 @@ class AutonomousAgentController:
                 "or query customer directories. How can I assist you today?"
             )
             rec = self._log(sid, "TARGET", "GREETING_HANDLED", ThreatSeverity.SEV4_INFO.value, {
+                "execution_id": eid,
                 "prompt": user_prompt,
                 "target_model": active_model,
             })
@@ -151,7 +158,16 @@ class AutonomousAgentController:
                 "Greeting handled directly without tool call.",
                 model_name=active_model, final_response=greeting_msg,
                 audit_block_hash=rec.current_hash if rec else "",
+                audit_block_index=rec.index if rec else None,
                 assistant_mode=assistant_mode, scope_status="IN_SCOPE_COMPANY" if assistant_mode == "company" else "IN_SCOPE_GENERAL",
+                execution_id=eid, timestamp=now_ts,
+                model_decision="DIRECT_RESPONSE",
+                pep_decision="NOT EXECUTED",
+                tool_invocation="NOT EXECUTED",
+                resource_access_outcome="NOT EXECUTED",
+                runtime_containment="NOT EXECUTED",
+                audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+                runtime_isolation_claim="APPLICATION_LEVEL_PEP (NO_HOST_SYSCALL_INVOKED)",
             )
 
         if assistant_mode == "company":
@@ -161,6 +177,7 @@ class AutonomousAgentController:
                     "document, customer record, or business service you need assistance with."
                 )
                 rec = self._log(sid, "TARGET", "UNCLEAR_INPUT_HANDLED", ThreatSeverity.SEV4_INFO.value, {
+                    "execution_id": eid,
                     "prompt": user_prompt,
                     "target_model": active_model,
                 })
@@ -169,7 +186,16 @@ class AutonomousAgentController:
                     "Input was unclear; clarification requested.",
                     model_name=active_model, final_response=clarification_msg,
                     audit_block_hash=rec.current_hash if rec else "",
+                    audit_block_index=rec.index if rec else None,
                     assistant_mode=assistant_mode, scope_status="UNCLEAR",
+                    execution_id=eid, timestamp=now_ts,
+                    model_decision="DIRECT_RESPONSE",
+                    pep_decision="NOT EXECUTED",
+                    tool_invocation="NOT EXECUTED",
+                    resource_access_outcome="NOT EXECUTED",
+                    runtime_containment="NOT EXECUTED",
+                    audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+                    runtime_isolation_claim="APPLICATION_LEVEL_PEP (NO_HOST_SYSCALL_INVOKED)",
                 )
 
             if not self.is_company_scope(user_prompt):
@@ -179,6 +205,7 @@ class AutonomousAgentController:
                     "Please switch to General Assistant mode if you wish to ask general-knowledge questions."
                 )
                 rec = self._log(sid, "TARGET", "OUT_OF_SCOPE_HANDLED", ThreatSeverity.SEV4_INFO.value, {
+                    "execution_id": eid,
                     "prompt": user_prompt,
                     "target_model": active_model,
                 })
@@ -187,7 +214,16 @@ class AutonomousAgentController:
                     "General-knowledge question outside Company Assistant scope.",
                     model_name=active_model, final_response=scope_msg,
                     audit_block_hash=rec.current_hash if rec else "",
+                    audit_block_index=rec.index if rec else None,
                     assistant_mode=assistant_mode, scope_status="OUT_OF_SCOPE",
+                    execution_id=eid, timestamp=now_ts,
+                    model_decision="DIRECT_RESPONSE",
+                    pep_decision="NOT EXECUTED",
+                    tool_invocation="NOT EXECUTED",
+                    resource_access_outcome="NOT EXECUTED",
+                    runtime_containment="NOT EXECUTED",
+                    audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+                    runtime_isolation_claim="APPLICATION_LEVEL_PEP (NO_HOST_SYSCALL_INVOKED)",
                 )
 
         kwargs: Dict[str, Any] = {}
@@ -214,6 +250,7 @@ class AutonomousAgentController:
         if not llm_res.get("success", False):
             err = llm_res.get("error", "Unknown inference error")
             rec = self._log(sid, "TARGET", "INFERENCE_ERROR", ThreatSeverity.SEV3_MEDIUM.value, {
+                "execution_id": eid,
                 "error": err,
                 "latency_ms": llm_res.get("latency_ms", 0.0),
                 "target_model": active_model,
@@ -222,6 +259,15 @@ class AutonomousAgentController:
                 sid, user_prompt, err, AgentOutcomeType.EXECUTION_ERROR, err,
                 model_name=active_model, final_response=err, assistant_mode=assistant_mode,
                 audit_block_hash=rec.current_hash if rec else "",
+                audit_block_index=rec.index if rec else None,
+                execution_id=eid, timestamp=now_ts,
+                model_decision="INFERENCE_ERROR",
+                pep_decision="NOT EXECUTED",
+                tool_invocation="NOT EXECUTED",
+                resource_access_outcome="NOT EXECUTED",
+                runtime_containment="NOT EXECUTED",
+                audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+                runtime_isolation_claim="APPLICATION_LEVEL_PEP (NO_HOST_SYSCALL_INVOKED)",
             )
 
         raw, is_refusal, tool_call = llm_res.get("raw_response", ""), llm_res.get("refused", False), llm_res.get("tool_call")
@@ -229,6 +275,7 @@ class AutonomousAgentController:
         # Step 3: Model safety refusal vs direct response
         if is_refusal and not tool_call:
             rec = self._log(sid, "TARGET", "MODEL_REFUSAL", ThreatSeverity.SEV4_INFO.value, {
+                "execution_id": eid,
                 "model": active_model, "raw_response": raw[:300], "inference_latency_ms": llm_res.get("latency_ms", 0.0),
             })
             return self._report(
@@ -236,11 +283,21 @@ class AutonomousAgentController:
                 "Model intrinsic safety guardrails refused adversarial request before tool execution.",
                 model_refused=True, model_name=active_model, final_response=raw,
                 audit_block_hash=rec.current_hash if rec else "",
+                audit_block_index=rec.index if rec else None,
                 assistant_mode=assistant_mode, scope_status="REFUSED",
+                execution_id=eid, timestamp=now_ts,
+                model_decision="MODEL_REFUSAL",
+                pep_decision="NOT EXECUTED",
+                tool_invocation="NOT EXECUTED",
+                resource_access_outcome="NOT EXECUTED",
+                runtime_containment="NOT EXECUTED",
+                audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+                runtime_isolation_claim="APPLICATION_LEVEL_PEP (NO_HOST_SYSCALL_INVOKED)",
             )
 
         if not tool_call:
             rec = self._log(sid, "TARGET", "DIRECT_RESPONSE", ThreatSeverity.SEV4_INFO.value, {
+                "execution_id": eid,
                 "response": raw[:300], "target_model": active_model,
             })
             return self._report(
@@ -248,13 +305,26 @@ class AutonomousAgentController:
                 "Direct informational response generated with no tool execution required.",
                 policy_approved=True, model_name=active_model, final_response=raw,
                 audit_block_hash=rec.current_hash if rec else "",
+                audit_block_index=rec.index if rec else None,
                 assistant_mode=assistant_mode,
+                execution_id=eid, timestamp=now_ts,
+                model_decision="DIRECT_RESPONSE",
+                pep_decision="NOT EXECUTED",
+                tool_invocation="NOT EXECUTED",
+                resource_access_outcome="NOT EXECUTED",
+                runtime_containment="NOT EXECUTED",
+                audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+                runtime_isolation_claim="APPLICATION_LEVEL_PEP (NO_HOST_SYSCALL_INVOKED)",
             )
 
         # Step 4: Independent Threat Classification & Tool Execution
+        tool_args_str = ", ".join(f"{k}={v}" for k, v in tool_call.arguments.items()) if tool_call.arguments else ""
+        tool_inv_desc = f"{tool_call.tool}({tool_args_str})"
+
         threat_eval: ThreatAssessment = self.threat_detector.evaluate(f"{tool_call.tool} {tool_call.arguments}")
         if threat_eval.detected:
             self._log(sid, "BLUE", "TOOL_THREAT_CLASSIFIED", threat_eval.severity.value, {
+                "execution_id": eid,
                 "tool": tool_call.tool, "threat_name": threat_eval.threat_name,
                 "mitre_atlas_id": threat_eval.mitre_atlas_id, "description": threat_eval.description,
                 "target_model": active_model,
@@ -264,12 +334,31 @@ class AutonomousAgentController:
         sev = tool_result.details.get("severity", ThreatSeverity.SEV1_CRITICAL.value) if tool_result.security_event_triggered else ThreatSeverity.SEV4_INFO.value
 
         rec = self._log(sid, "BLUE", "TOOL_EXECUTION_AUDITED", sev, {
+            "execution_id": eid,
             "tool": tool_result.tool, "status": tool_result.status, "outcome": tool_result.outcome_type.value,
             "execution_time_ms": tool_result.execution_time_ms, "security_event": tool_result.security_event_triggered,
             "output_preview": tool_result.output[:200], "details": tool_result.details,
             "target_model": active_model,
         })
         audit_hash = rec.current_hash if rec else ""
+        audit_idx = rec.index if rec else None
+
+        # Determine separate stage outcomes
+        if tool_result.status == "SUCCESS":
+            pep_decision = "AUTHORIZED"
+            res_outcome = "ACCESS_PERMITTED"
+            runtime_containment = "NOT EXECUTED"
+            isolation_claim = "APPLICATION_LEVEL_PEP (VERIFIED_LOCAL_FS)"
+        elif tool_result.outcome_type == AgentOutcomeType.POLICY_DENIED:
+            pep_decision = "DENIED"
+            res_outcome = "ACCESS_DENIED"
+            runtime_containment = "APPLICATION_PEP_BLOCKED"
+            isolation_claim = "APPLICATION_LEVEL_PEP (INTERCEPTED_BEFORE_OS_SYSCALL)"
+        else:
+            pep_decision = "DENIED"
+            res_outcome = "ACCESS_DENIED"
+            runtime_containment = "RUNTIME_BLOCKED"
+            isolation_claim = "APPLICATION_LEVEL_PEP (PATH_ESCAPE_BLOCKED)"
 
         # Step 5: Complete Tool-to-Response Cycle
         final_answer = ""
@@ -283,7 +372,6 @@ class AutonomousAgentController:
                 if doc:
                     sources.append(doc)
             elif tool_call.tool == "search_knowledge_base":
-                # Extract any mentioned documents
                 for match in re.findall(r"\[Document:\s*([^|\]]+)", tool_result.output):
                     m_clean = match.strip()
                     if m_clean not in sources:
@@ -306,6 +394,7 @@ class AutonomousAgentController:
                 model_override=active_model,
             )
             self._log(sid, "TARGET", "FINAL_RESPONSE_GENERATED", ThreatSeverity.SEV4_INFO.value, {
+                "execution_id": eid,
                 "target_model": active_model,
                 "tool": tool_call.tool,
                 "sources": sources,
@@ -326,6 +415,7 @@ class AutonomousAgentController:
                 f"Reason: {tool_result.output}"
             )
             self._log(sid, "BLUE", "SECURITY_POLICY_DENIED_EXPLAINED", sev, {
+                "execution_id": eid,
                 "tool": tool_call.tool,
                 "reason": tool_result.output,
                 "target_model": active_model,
@@ -335,11 +425,15 @@ class AutonomousAgentController:
         quarantined, q_latency = False, 0.0
         if tool_result.security_event_triggered and sev in {ThreatSeverity.SEV1_CRITICAL.value, ThreatSeverity.SEV2_HIGH.value}:
             quarantined = True
-            q_start = time.perf_counter()
             if self.on_quarantine:
+                q_start = time.perf_counter()
                 self.on_quarantine(sid, tool_result.output, q_start)
-            q_latency = round((time.perf_counter() - q_start) * 1000, 2)
+                q_latency = round((time.perf_counter() - q_start) * 1000, 2)
+                runtime_containment = "CONTAINER_QUARANTINED"
+            else:
+                runtime_containment = "APPLICATION_PEP_BLOCKED"
             self._log(sid, "BLUE", "AGENT_WORKLOAD_QUARANTINED", ThreatSeverity.SEV1_CRITICAL.value, {
+                "execution_id": eid,
                 "reason": tool_result.output, "triggering_tool": tool_result.tool,
                 "quarantine_latency_ms": q_latency, "target_model": active_model,
             })
@@ -359,5 +453,15 @@ class AutonomousAgentController:
             sources=sources,
             assistant_mode=assistant_mode,
             scope_status=scope_status,
+            execution_id=eid,
+            timestamp=now_ts,
+            model_decision="TOOL_PROPOSED",
+            pep_decision=pep_decision,
+            tool_invocation=tool_inv_desc,
+            resource_access_outcome=res_outcome,
+            runtime_containment=runtime_containment,
+            audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+            audit_block_index=audit_idx,
+            runtime_isolation_claim=isolation_claim,
         )
 

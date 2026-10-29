@@ -161,6 +161,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., description="User prompt or question to the agent")
     session_id: Optional[str] = Field(None, description="Active conversation session ID")
+    execution_id: Optional[str] = Field(None, description="Optional unique execution ID for request correlation")
     target_model: Optional[str] = Field(None, description="Target model identifier")
     assistant_mode: str = Field("company", description="'company' or 'general'")
     history: List[ChatMessage] = Field(default_factory=list, description="Recent conversation turns")
@@ -168,6 +169,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     session_id: str
+    execution_id: str = ""
+    timestamp: str = ""
     message: str
     final_response: str = ""
     raw_response: str = ""
@@ -181,6 +184,13 @@ class ChatResponse(BaseModel):
     tool_name: Optional[str] = None
     tool_status: Optional[str] = None
     tool_output_preview: Optional[str] = None
+    model_decision: str = "NOT EXECUTED"
+    pep_decision: str = "NOT EXECUTED"
+    tool_invocation: str = "NOT EXECUTED"
+    resource_access_outcome: str = "NOT EXECUTED"
+    runtime_containment: str = "NOT EXECUTED"
+    audit_persistence: str = "NOT EXECUTED"
+    runtime_isolation_claim: str = "NONE_VERIFIED"
     policy_decision: Optional[str] = None
     pep_authorized: Optional[bool] = None
     pep_reason: str = ""

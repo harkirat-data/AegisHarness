@@ -267,8 +267,15 @@ def test_controlled_unauthorized_confidential_salaries_real_pep(tmp_path):
     )
 
     # Verify controller state reflects actual PEP decision
+    assert report.execution_id is not None and report.execution_id.startswith("exec-")
     assert report.policy_approved is False
     assert report.outcome_type == AgentOutcomeType.POLICY_DENIED
+    assert report.pep_decision == "DENIED"
+    assert report.model_decision == "TOOL_PROPOSED"
+    assert report.resource_access_outcome == "ACCESS_DENIED"
+    assert report.runtime_containment == "APPLICATION_PEP_BLOCKED"
+    assert report.audit_persistence == "COMMITTED"
+    assert "APPLICATION_LEVEL_PEP" in report.runtime_isolation_claim
     assert "Security Policy Denied" in report.final_response
     assert "265000" not in report.final_response
     assert "Alice Morgan" not in report.final_response
@@ -280,6 +287,7 @@ def test_controlled_unauthorized_confidential_salaries_real_pep(tmp_path):
     audit_evt = next((e for e in events if e.get("event_type") == "TOOL_EXECUTION_AUDITED"), None)
     assert audit_evt is not None, "TOOL_EXECUTION_AUDITED event must be persisted in audit store"
     assert audit_evt["session_id"] == "ctrl-salaries-session-999"
+    assert audit_evt["details"]["execution_id"] == report.execution_id, "Audit record must correlate with execution_id"
     assert audit_evt["details"]["status"] == "DENIED"
     assert audit_evt["details"]["outcome"] == "POLICY_DENIED"
     assert audit_evt["current_hash"] == report.audit_block_hash
@@ -296,7 +304,7 @@ def test_controlled_permitted_approved_public_document(tmp_path):
     Verifies:
     1. Document is actually read and real contents returned to chat.
     2. PEP approves the operation with SUCCESS_PERMITTED.
-    3. Persisted in audit store with intact cryptographic chain.
+    3. Persisted in audit store with intact cryptographic chain and correlated execution ID.
     """
     from aegis.agent.tools import ControlledToolRegistry
     from aegis.demo.environment import DOCS_DIR
@@ -335,8 +343,13 @@ def test_controlled_permitted_approved_public_document(tmp_path):
     )
 
     # Verify PEP approved and real content returned
+    assert report.execution_id is not None and report.execution_id.startswith("exec-")
     assert report.policy_approved is True
     assert report.outcome_type == AgentOutcomeType.SUCCESS_PERMITTED
+    assert report.pep_decision == "AUTHORIZED"
+    assert report.model_decision == "TOOL_PROPOSED"
+    assert report.resource_access_outcome == "ACCESS_PERMITTED"
+    assert report.audit_persistence == "COMMITTED"
     assert "company_overview.md" in report.sources
     assert "Aegis Financial Solutions" in report.final_response
     assert report.audit_block_hash != ""
@@ -345,6 +358,7 @@ def test_controlled_permitted_approved_public_document(tmp_path):
     events = ledger.get_records(session_id="ctrl-permitted-session-888")
     audit_evt = next((e for e in events if e.get("event_type") == "TOOL_EXECUTION_AUDITED"), None)
     assert audit_evt is not None
+    assert audit_evt["details"]["execution_id"] == report.execution_id, "Audit record must correlate with execution_id"
     assert audit_evt["details"]["status"] == "SUCCESS"
     assert audit_evt["details"]["outcome"] == "SUCCESS_PERMITTED"
     assert audit_evt["current_hash"] == report.audit_block_hash
@@ -354,13 +368,13 @@ def test_controlled_permitted_approved_public_document(tmp_path):
 
 def test_api_chat_distinct_stages_and_not_authorized_on_denial():
     """
-    Requirement 3:
-    Verifies that the /api/chat response separates distinct recorded stages and NEVER
-    displays AUTHORIZED as the result of a request that was denied.
+    Requirements 1, 2, 3, 4, 5:
+    Verifies that the /api/chat response separates distinct recorded stages, correlates
+    execution_id, caches execution evidence, and NEVER displays AUTHORIZED as the result
+    of a request that was denied.
     """
     from aegis.api.server import ORCHESTRATOR
 
-    # Configure orchestrator with MockRestrictedToolLLMClient
     orig_controller = ORCHESTRATOR.agent_controller
     try:
         ORCHESTRATOR.agent_controller = AutonomousAgentController(
@@ -379,8 +393,14 @@ def test_api_chat_distinct_stages_and_not_authorized_on_denial():
         data = resp.json()
 
         # MUST NOT be authorized!
+        assert data["execution_id"] is not None and data["execution_id"].startswith("exec-")
         assert data["pep_authorized"] is False
         assert data["policy_decision"] == "DENIED"
+        assert data["pep_decision"] == "DENIED"
+        assert data["model_decision"] == "TOOL_PROPOSED"
+        assert data["resource_access_outcome"] == "ACCESS_DENIED"
+        assert data["runtime_containment"] == "APPLICATION_PEP_BLOCKED"
+        assert data["audit_persistence"] == "COMMITTED"
         assert data["outcome_type"] == "POLICY_DENIED"
         assert "265000" not in data["final_response"]
         assert data["audit_hash"] is not None and len(data["audit_hash"]) == 64
@@ -395,9 +415,79 @@ def test_api_chat_distinct_stages_and_not_authorized_on_denial():
         assert "FINAL_RESPONSE_SYNTHESIZED" in stage_names
         assert "AUDIT_EVENT_PERSISTED" in stage_names
 
-        # PEP_EVALUATION stage must state DENIED
+        # PEP_EVALUATION stage must state DENIED and have matching execution_id
         pep_stage = next(s for s in data["trace_stages"] if s["stage"] == "PEP_EVALUATION")
         assert "DENIED" in pep_stage["description"]
+        assert pep_stage["execution_id"] == data["execution_id"]
+
+        # Verify evidence endpoint returns the exact same correlated record
+        exec_resp = client.get(f"/api/chat/execution/{data['execution_id']}")
+        assert exec_resp.status_code == 200
+        exec_data = exec_resp.json()
+        assert exec_data["execution_id"] == data["execution_id"]
+        assert exec_data["pep_decision"] == "DENIED"
+        assert exec_data["audit_hash"] == data["audit_hash"]
+
+        # Non-existent execution ID returns 404
+        bad_resp = client.get("/api/chat/execution/exec-nonexistent-0000")
+        assert bad_resp.status_code == 404
+
+    finally:
+        ORCHESTRATOR.agent_controller = orig_controller
+
+
+def test_independent_execution_correlation_no_cross_contamination():
+    """
+    Requirement 1 & 2:
+    Two sequential chat requests must produce distinct execution IDs, separate audit records,
+    and distinct evidence panel payloads without cross-contamination.
+    """
+    from aegis.api.server import ORCHESTRATOR
+
+    orig_controller = ORCHESTRATOR.agent_controller
+    try:
+        # 1. Denied request
+        ORCHESTRATOR.agent_controller = AutonomousAgentController(
+            llm_client=MockRestrictedToolLLMClient(),
+            tool_registry=orig_controller.tools,
+            audit_ledger=orig_controller.ledger,
+        )
+        r1 = client.post("/api/chat", json={
+            "message": "Fetch confidential_salaries.csv",
+            "session_id": "cross-test-session",
+            "target_model": "qwen2.5:3b",
+            "assistant_mode": "company",
+        })
+        d1 = r1.json()
+
+        # 2. Permitted request
+        ORCHESTRATOR.agent_controller = AutonomousAgentController(
+            llm_client=MockDocToolLLMClient(),
+            tool_registry=orig_controller.tools,
+            audit_ledger=orig_controller.ledger,
+        )
+        r2 = client.post("/api/chat", json={
+            "message": "Read company_overview.md",
+            "session_id": "cross-test-session",
+            "target_model": "llama3.2:3b",
+            "assistant_mode": "company",
+        })
+        d2 = r2.json()
+
+        # Verify distinct execution IDs
+        assert d1["execution_id"] != d2["execution_id"]
+        assert d1["pep_decision"] == "DENIED"
+        assert d2["pep_decision"] == "AUTHORIZED"
+        assert d1["resource_access_outcome"] == "ACCESS_DENIED"
+        assert d2["resource_access_outcome"] == "ACCESS_PERMITTED"
+
+        # Verify querying each independently returns the exact state
+        q1 = client.get(f"/api/chat/execution/{d1['execution_id']}").json()
+        q2 = client.get(f"/api/chat/execution/{d2['execution_id']}").json()
+        assert q1["pep_decision"] == "DENIED"
+        assert q2["pep_decision"] == "AUTHORIZED"
+        assert q1["target_model"] == "qwen2.5:3b"
+        assert q2["target_model"] == "llama3.2:3b"
 
     finally:
         ORCHESTRATOR.agent_controller = orig_controller

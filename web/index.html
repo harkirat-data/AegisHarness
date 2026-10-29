@@ -412,23 +412,51 @@
             <span id="chat-exec-status" class="badge badge-neutral">IDLE</span>
           </div>
 
-          <!-- Current Run Telemetry Card -->
-          <div style="background: #ffffff; border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; font-size: 0.76rem;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
+          <!-- Current Run Telemetry Card with Discrete Verifiable Stages -->
+          <div style="background: #ffffff; border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; font-size: 0.74rem; display: flex; flex-direction: column; gap: 0.28rem;">
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Execution ID:</span>
+              <strong id="tech-exec-id" class="font-mono text-cyan" style="font-size: 0.68rem; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">NOT EXECUTED</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Timestamp:</span>
+              <span id="tech-exec-time" class="font-mono text-muted" style="font-size: 0.68rem;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
               <span class="text-muted">Active Model:</span>
               <strong id="tech-active-model" class="font-mono text-blue">gemma2:2b</strong>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
-              <span class="text-muted">PEP Decision:</span>
-              <strong id="tech-pep-decision" class="badge badge-neutral" style="font-size: 0.65rem;">NOT EVALUATED</strong>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Model Decision:</span>
+              <strong id="tech-model-decision" class="badge badge-neutral" style="font-size: 0.64rem;">NOT EXECUTED</strong>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
-              <span class="text-muted">Tool Invoked:</span>
-              <span id="tech-tool-name" class="font-mono">None</span>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">PEP Decision:</span>
+              <strong id="tech-pep-decision" class="badge badge-neutral" style="font-size: 0.64rem;">NOT EXECUTED</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Tool Invocation:</span>
+              <span id="tech-tool-name" class="font-mono" style="font-size: 0.66rem; max-width: 165px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">NOT EXECUTED</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Resource Access:</span>
+              <strong id="tech-resource-access" class="badge badge-neutral" style="font-size: 0.64rem;">NOT EXECUTED</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Runtime Containment:</span>
+              <strong id="tech-runtime-containment" class="badge badge-neutral" style="font-size: 0.64rem;">NOT EXECUTED</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span class="text-muted">Audit Persistence:</span>
+              <strong id="tech-audit-persistence" class="badge badge-neutral" style="font-size: 0.64rem;">NOT EXECUTED</strong>
             </div>
             <div style="display: flex; justify-content: space-between;">
               <span class="text-muted">Audit Record Hash:</span>
-              <span id="tech-audit-hash" class="font-mono text-muted" style="font-size: 0.68rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">--</span>
+              <span id="tech-audit-hash" class="font-mono text-muted" style="font-size: 0.66rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px dashed var(--card-border); padding-top: 0.2rem; margin-top: 0.1rem;">
+              <span class="text-muted">Isolation Claim:</span>
+              <span id="tech-isolation-claim" class="text-muted font-mono" style="font-size: 0.64rem;">APPLICATION_LEVEL_PEP</span>
             </div>
           </div>
 

@@ -6,6 +6,7 @@ Provides REST endpoints and bi-directional WebSockets for the AegisHarness Secur
 import asyncio
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -47,6 +48,7 @@ from aegis.api.models import (
 ORCHESTRATOR = TriWorkloadOrchestrator()
 RUNNER = RedTeamRunner(orchestrator=ORCHESTRATOR, ledger=ORCHESTRATOR.ledger)
 CHAT_SESSIONS: Dict[str, List[Dict[str, Any]]] = {}
+CHAT_EXECUTIONS: Dict[str, Dict[str, Any]] = {}
 
 
 class ConnectionManager:
@@ -303,6 +305,9 @@ async def chat_endpoint(req: ChatRequest):
         )
 
     t0 = asyncio.get_event_loop().time()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    execution_id = req.execution_id or f"exec-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+
     report = ORCHESTRATOR.agent_controller.run_session(
         user_prompt=req.message,
         session_id=session_id,
@@ -310,6 +315,7 @@ async def chat_endpoint(req: ChatRequest):
         expected_outcome="Permitted within assistant scope",
         model_override=active_model,
         assistant_mode=req.assistant_mode,
+        execution_id=execution_id,
     )
     elapsed_ms = round((asyncio.get_event_loop().time() - t0) * 1000, 2)
 
@@ -317,16 +323,17 @@ async def chat_endpoint(req: ChatRequest):
     if session_id not in CHAT_SESSIONS:
         CHAT_SESSIONS[session_id] = []
 
-    now_iso = datetime.now(timezone.utc).isoformat()
     CHAT_SESSIONS[session_id].append({
         "role": "user",
         "content": req.message,
         "timestamp": now_iso,
+        "execution_id": execution_id,
     })
     CHAT_SESSIONS[session_id].append({
         "role": "assistant",
         "content": report.final_response,
         "timestamp": now_iso,
+        "execution_id": report.execution_id or execution_id,
         "model": report.model_name,
         "mode": report.assistant_mode,
         "scope_status": report.scope_status,
@@ -348,76 +355,86 @@ async def chat_endpoint(req: ChatRequest):
     trace_stages = [
         {
             "stage": "PROMPT_RECEIVED",
+            "execution_id": execution_id,
             "timestamp": now_iso,
             "description": f"User message received in {req.assistant_mode.upper()} mode.",
-            "evidence": {"message": req.message[:120], "mode": req.assistant_mode, "model": report.model_name},
+            "evidence": {"execution_id": execution_id, "message": req.message[:120], "mode": req.assistant_mode, "model": report.model_name},
         },
         {
             "stage": "MODEL_INFERRED",
+            "execution_id": execution_id,
             "timestamp": now_iso,
-            "description": f"Model {report.model_name} generated response.",
-            "evidence": {"raw_preview": report.model_response_raw[:200], "has_tool_proposal": bool(report.proposed_tool_call), "refused": report.model_refused},
+            "description": f"Model {report.model_name} generated response (Decision: {report.model_decision}).",
+            "evidence": {"execution_id": execution_id, "raw_preview": report.model_response_raw[:200], "decision": report.model_decision, "has_tool_proposal": bool(report.proposed_tool_call), "refused": report.model_refused},
         },
     ]
 
     if report.model_refused:
         trace_stages.append({
             "stage": "MODEL_REFUSAL",
+            "execution_id": execution_id,
             "timestamp": now_iso,
             "description": "Model safety guardrails refused adversarial request without proposing tools.",
-            "evidence": {"raw_response": report.model_response_raw[:200]},
+            "evidence": {"execution_id": execution_id, "raw_response": report.model_response_raw[:200]},
         })
 
     if report.proposed_tool_call:
         trace_stages.append({
             "stage": "TOOL_PROPOSED",
+            "execution_id": execution_id,
             "timestamp": now_iso,
             "description": f"Model proposed tool invocation: {report.proposed_tool_call.tool}",
-            "evidence": {"tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments},
+            "evidence": {"execution_id": execution_id, "tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments},
         })
         trace_stages.append({
             "stage": "PEP_EVALUATION",
+            "execution_id": execution_id,
             "timestamp": now_iso,
-            "description": f"Zero-Trust PEP Decision: {'AUTHORIZED' if report.policy_approved else 'DENIED'}",
-            "evidence": {"tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments, "policy_reason": report.policy_reason},
+            "description": f"Zero-Trust PEP Decision: {report.pep_decision}",
+            "evidence": {"execution_id": execution_id, "tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments, "policy_reason": report.policy_reason},
         })
 
     if report.tool_result:
         if report.tool_result.status == "SUCCESS":
             trace_stages.append({
                 "stage": "RESOURCE_ACCESS_PERMITTED",
+                "execution_id": execution_id,
                 "timestamp": now_iso,
                 "description": f"Authorized resource access completed via '{report.tool_result.tool}'.",
-                "evidence": {"execution_time_ms": report.tool_result.execution_time_ms, "output_preview": tool_preview},
+                "evidence": {"execution_id": execution_id, "execution_time_ms": report.tool_result.execution_time_ms, "output_preview": tool_preview},
             })
         elif report.outcome_type.value == "POLICY_DENIED":
             trace_stages.append({
                 "stage": "RESOURCE_ACCESS_DENIED",
+                "execution_id": execution_id,
                 "timestamp": now_iso,
                 "description": f"Zero-Trust PEP intercepted and blocked unauthorized access to '{report.tool_result.tool}'.",
-                "evidence": {"tool": report.tool_result.tool, "reason": report.tool_result.output, "security_event": report.tool_result.security_event_triggered},
+                "evidence": {"execution_id": execution_id, "tool": report.tool_result.tool, "reason": report.tool_result.output, "security_event": report.tool_result.security_event_triggered},
             })
         else:
             trace_stages.append({
                 "stage": "RUNTIME_BLOCKED",
+                "execution_id": execution_id,
                 "timestamp": now_iso,
                 "description": f"Runtime containment boundary stopped '{report.tool_result.tool}'.",
-                "evidence": {"tool": report.tool_result.tool, "reason": report.tool_result.output},
+                "evidence": {"execution_id": execution_id, "tool": report.tool_result.tool, "reason": report.tool_result.output},
             })
 
     trace_stages.append({
         "stage": "FINAL_RESPONSE_SYNTHESIZED",
+        "execution_id": execution_id,
         "timestamp": now_iso,
         "description": "Natural language response synthesized from verified evidence.",
-        "evidence": {"final_response_preview": report.final_response[:200], "sources": report.sources},
+        "evidence": {"execution_id": execution_id, "final_response_preview": report.final_response[:200], "sources": report.sources},
     })
 
     if report.audit_block_hash:
         trace_stages.append({
             "stage": "AUDIT_EVENT_PERSISTED",
+            "execution_id": execution_id,
             "timestamp": now_iso,
-            "description": f"Cryptographic record committed to WORM ledger (Hash: {report.audit_block_hash[:16]}...)",
-            "evidence": {"session_id": session_id, "audit_hash": report.audit_block_hash},
+            "description": f"Cryptographic record committed to WORM ledger (Block #{report.audit_block_index}, Hash: {report.audit_block_hash[:16]}...)",
+            "evidence": {"session_id": session_id, "execution_id": execution_id, "audit_hash": report.audit_block_hash, "block_index": report.audit_block_index},
         })
 
     if report.proposed_tool_call:
@@ -430,8 +447,10 @@ async def chat_endpoint(req: ChatRequest):
         pep_auth = None
         pol_dec = "NOT_REQUIRED"
 
-    return ChatResponse(
+    chat_resp = ChatResponse(
         session_id=session_id,
+        execution_id=report.execution_id or execution_id,
+        timestamp=report.timestamp or now_iso,
         message=report.final_response,
         final_response=report.final_response,
         raw_response=report.model_response_raw,
@@ -445,16 +464,26 @@ async def chat_endpoint(req: ChatRequest):
         tool_name=tool_name,
         tool_status=tool_status,
         tool_output_preview=tool_preview,
+        model_decision=report.model_decision,
+        pep_decision=report.pep_decision,
+        tool_invocation=report.tool_invocation,
+        resource_access_outcome=report.resource_access_outcome,
+        runtime_containment=report.runtime_containment,
+        audit_persistence=report.audit_persistence,
+        runtime_isolation_claim=report.runtime_isolation_claim,
         policy_decision=pol_dec,
         pep_authorized=pep_auth,
         pep_reason=report.policy_reason,
         outcome_type=report.outcome_type.value,
         audit_hash=report.audit_block_hash,
         audit_event_id=report.audit_block_hash,
-        audit_block_index=None,
+        audit_block_index=report.audit_block_index,
         latency_ms=elapsed_ms,
         trace_stages=trace_stages,
     )
+
+    CHAT_EXECUTIONS[chat_resp.execution_id] = chat_resp.model_dump()
+    return chat_resp
 
 
 @app.get("/api/chat/history")
@@ -463,6 +492,14 @@ async def get_chat_history(session_id: Optional[str] = None):
     if session_id:
         return {"session_id": session_id, "messages": CHAT_SESSIONS.get(session_id, [])}
     return {"sessions": list(CHAT_SESSIONS.keys()), "count": len(CHAT_SESSIONS)}
+
+
+@app.get("/api/chat/execution/{execution_id}")
+async def get_chat_execution(execution_id: str):
+    """Returns verifiable diagnostic evidence for a specific execution ID."""
+    if execution_id in CHAT_EXECUTIONS:
+        return CHAT_EXECUTIONS[execution_id]
+    raise HTTPException(status_code=404, detail=f"Execution ID '{execution_id}' not found")
 
 
 
