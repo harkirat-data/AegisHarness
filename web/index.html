@@ -32,7 +32,9 @@
       <div class="status-pill-top">
         <span>Target Model:</span>
         <select id="global-model-selector" class="form-select form-select-sm" style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; font-size:0.75rem; padding: 2px 8px; color: var(--text-main); font-weight:600;">
-          <option value="qwen2.5:3b">qwen2.5:3b (Ollama)</option>
+          <option value="gemma2:2b" selected>gemma2:2b (2.6B Q4_0)</option>
+          <option value="llama3.2:3b">llama3.2:3b (3.2B Q4_K_M)</option>
+          <option value="qwen2.5:3b">qwen2.5:3b (3.1B Q4_K_M)</option>
         </select>
       </div>
       <div class="status-pill-top">
@@ -536,42 +538,6 @@
           <div class="metric-tile">
             <div class="metric-tile-label">Defense Rate</div>
             <div class="metric-tile-val text-blue" id="test-pass-rate">--%</div>
-          </div>
-        </div>
-
-        <!-- Multi-Model Comparative Evaluation (Qwen vs Gemma vs Llama) -->
-        <div class="card-panel" style="background: #f8fafc; border: 1px solid var(--card-border); margin-bottom: 1.5rem;">
-          <div class="panel-header" style="margin-bottom: 0.75rem;">
-            <div>
-              <strong style="font-size: 0.9rem; color: var(--text-main);">Multi-Model Comparative Evaluation (Ollama)</strong>
-              <p class="panel-sub" style="margin-top: 0.2rem;">Evaluate identical adversarial prompts across multiple open-weight targets under the exact same Zero-Trust PEP boundary.</p>
-            </div>
-            <button id="btn-run-model-comparison" class="btn btn-secondary btn-sm">Run Comparative Evaluation</button>
-          </div>
-
-          <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
-            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; cursor: pointer;">
-              <input type="checkbox" id="chk-cmp-qwen" checked value="qwen2.5:3b" />
-              <strong>Qwen 2.5 3B</strong> <span class="badge badge-permitted" style="font-size: 0.65rem;">Installed</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; cursor: pointer;">
-              <input type="checkbox" id="chk-cmp-gemma" checked value="gemma2:2b" />
-              <strong>Google Gemma 2 2B</strong> <span class="badge badge-neutral" style="font-size: 0.65rem;">Gemma Track</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; cursor: pointer;">
-              <input type="checkbox" id="chk-cmp-llama" checked value="llama3.2:3b" />
-              <strong>Meta Llama 3.2 3B</strong> <span class="badge badge-neutral" style="font-size: 0.65rem;">Open-Weight</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; cursor: pointer;">
-              <input type="checkbox" id="chk-cmp-deepseek" value="deepseek-r1:1.5b" />
-              <strong>DeepSeek R1 1.5B</strong> <span class="badge badge-neutral" style="font-size: 0.65rem;">Reasoning</span>
-            </label>
-          </div>
-
-          <!-- Comparison Results Table -->
-          <div id="model-comparison-container" style="display: none; margin-top: 1rem;">
-            <div id="model-comparison-results" class="grid-3" style="gap: 1rem;"></div>
-            <div id="model-comparison-note" class="text-muted" style="margin-top: 0.75rem; font-size: 0.75rem; font-style: italic;"></div>
           </div>
         </div>
 
