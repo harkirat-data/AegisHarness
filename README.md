@@ -300,7 +300,7 @@ AegisHarness/
 ├── package.json                # Project metadata
 ├── aegis/                      # Core Python Engine
 │   ├── __init__.py
-│   ├── config.py               # Security policies, syscall allowlists, sandbox states
+│   ├──                # Security policies, syscall allowlists, sandbox states
 │   ├── agent/                  # Autonomous Agent Subsystem
 │   │   ├── __init__.py
 │   │   ├── schemas.py          # Strict Pydantic models for tool calls & outcomes

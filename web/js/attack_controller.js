@@ -13,6 +13,12 @@ class AttackController {
     this.workbenchMode = "business";
     this.chatSessionId = `chat-${Date.now()}`;
     this.chatAssistantMode = "company";
+    this.testMetrics = {
+      attempted: 0,
+      modelRefusals: 0,
+      pepDenials: 0,
+      confirmedBreaches: 0,
+    };
     this.init();
   }
 
@@ -20,6 +26,8 @@ class AttackController {
     this.initTabs();
     await this.fetchAttacks();
     await this.fetchSystemStatus();
+    await this.fetchAgentStatus();
+    await this.loadCompanyFiles();
     await this.fetchVoiceStatus();
     await this.loadLedgerTable();
     this.bindUI();
@@ -191,18 +199,66 @@ class AttackController {
         const target = document.getElementById(btn.dataset.tab);
         if (target) target.classList.add("active");
         try {
-          if (btn.dataset.tab === "pane-ledger") {
-            this.loadLedgerTable();
-          } else if (btn.dataset.tab === "pane-company") {
+          if (btn.dataset.tab === "pane-target") {
             this.loadCompanyFiles();
+            this.fetchAgentStatus();
           } else if (btn.dataset.tab === "pane-blue") {
+            this.loadLedgerTable();
             this.loadBlueEvents();
+          } else if (btn.dataset.tab === "pane-red") {
+            this.fetchAgentStatus();
           }
         } catch (err) {
           console.warn("Tab lazy load error:", err);
         }
       });
     });
+  }
+
+  async fetchAgentStatus() {
+    try {
+      const res = await fetch("/api/agent/status");
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const modelEl = document.getElementById("target-view-model");
+      if (modelEl) modelEl.innerText = data.target_model || "qwen2.5:3b";
+
+      const ctrlEl = document.getElementById("target-controller-mode");
+      if (ctrlEl) ctrlEl.innerText = `${data.status} (${data.assistant_mode === 'company' ? 'Company Mode' : 'General Mode'})`;
+
+      const wsPathEl = document.getElementById("target-workspace-path");
+      if (wsPathEl) wsPathEl.innerText = data.workspace_path || "data/demo_company/workspace/";
+
+      const slaEl = document.getElementById("target-sla-target");
+      if (slaEl) slaEl.innerText = `< ${data.quarantine_sla_target_ms || 50} ms`;
+
+      if (data.tool_permissions && Array.isArray(data.tool_permissions)) {
+        const tbody = document.getElementById("target-tools-table-body");
+        if (tbody) {
+          tbody.innerHTML = "";
+          data.tool_permissions.forEach((t) => {
+            const tr = document.createElement("tr");
+            const compBadge = t.company_allowed
+              ? `<span class="badge badge-permitted">PERMITTED</span>`
+              : `<span class="badge badge-blocked">DISABLED</span>`;
+            const genBadge = t.general_allowed
+              ? `<span class="badge badge-permitted">PERMITTED</span>`
+              : `<span class="badge badge-blocked">DISABLED</span>`;
+            tr.innerHTML = `
+              <td><code>${t.tool}</code></td>
+              <td>${t.purpose}</td>
+              <td>${compBadge}</td>
+              <td>${genBadge}</td>
+              <td>${t.rule}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch agent status:", e);
+    }
   }
 
   async loadCompanyFiles() {
@@ -467,20 +523,45 @@ class AttackController {
       modelSel.addEventListener("change", (e) => this.selectTargetModel(e.target.value));
     }
 
-    // Red Team Custom Dispatcher
+    // Red Team Custom Dispatcher & Presets
     const redPreset = document.getElementById("red-preset-select");
     if (redPreset) {
       redPreset.addEventListener("change", (e) => {
-        const promptInput = document.getElementById("red-custom-prompt");
-        if (promptInput && e.target.value) {
-          promptInput.value = e.target.value;
+        const chatInput = document.getElementById("chat-input");
+        if (chatInput && e.target.value) {
+          chatInput.value = e.target.value;
+          chatInput.focus();
         }
       });
     }
 
-    const dispatchRedBtn = document.getElementById("btn-dispatch-red-test");
-    if (dispatchRedBtn) {
-      dispatchRedBtn.addEventListener("click", () => this.dispatchRedTest());
+    // Direct PEP Testing Controls
+    const directPreset = document.getElementById("direct-pep-preset");
+    if (directPreset) {
+      directPreset.addEventListener("change", (e) => {
+        const val = e.target.value;
+        if (!val) return;
+        const parts = val.split(":");
+        const type = parts[0];
+        const arg = parts[1];
+        const mode = parts[2] || "company";
+
+        const toolSel = document.getElementById("direct-pep-tool");
+        const argInp = document.getElementById("direct-pep-arg");
+        const modeSel = document.getElementById("direct-pep-mode");
+
+        if (type === "doc" && toolSel) toolSel.value = "read_document";
+        if (type === "db" && toolSel) toolSel.value = "query_database";
+        if (type === "api" && toolSel) toolSel.value = "call_internal_api";
+
+        if (argInp) argInp.value = arg;
+        if (modeSel) modeSel.value = mode;
+      });
+    }
+
+    const btnDirectPep = document.getElementById("btn-direct-pep-test");
+    if (btnDirectPep) {
+      btnDirectPep.addEventListener("click", () => this.executeDirectPEPTest());
     }
 
     const clearTestsBtn = document.getElementById("btn-clear-tests");
@@ -488,12 +569,22 @@ class AttackController {
       clearTestsBtn.addEventListener("click", () => {
         const tbody = document.getElementById("security-tests-tbody");
         if (tbody) {
-          tbody.innerHTML = '<tr><td colspan="7" class="text-muted" style="text-align: center; padding: 2rem;">0 tests attempted. Enter a custom adversarial prompt above or click "Run Example Battery" to evaluate the target.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" class="text-muted" style="text-align: center; padding: 1.5rem;">0 tests recorded in this session. Submit an inquiry in the chat or click "Evaluate Direct PEP" to begin.</td></tr>';
         }
-        document.getElementById("test-count-attempted").innerText = "0";
-        document.getElementById("test-count-passed").innerText = "0";
-        document.getElementById("test-count-failed").innerText = "0";
-        document.getElementById("test-pass-rate").innerText = "--%";
+        this.testMetrics = { attempted: 0, modelRefusals: 0, pepDenials: 0, confirmedBreaches: 0 };
+        const att = document.getElementById("test-count-attempted");
+        if (att) att.innerText = "0";
+        const ref = document.getElementById("test-count-refusals");
+        if (ref) ref.innerText = "0";
+        const den = document.getElementById("test-count-pep-denials");
+        if (den) den.innerText = "0";
+        const bre = document.getElementById("test-count-breaches");
+        if (bre) bre.innerText = "0";
+        const rate = document.getElementById("test-pass-rate");
+        if (rate) {
+          rate.innerText = "INSUFFICIENT DATA";
+          rate.className = "metric-tile-val text-blue";
+        }
       });
     }
 
@@ -601,6 +692,7 @@ class AttackController {
     const compBtn = document.getElementById("btn-mode-company");
     const genBtn = document.getElementById("btn-mode-general");
     const modeBadge = document.getElementById("tech-active-mode");
+    const chatBadge = document.getElementById("chat-mode-badge");
 
     if (compBtn && genBtn) {
       if (mode === "company") {
@@ -613,6 +705,10 @@ class AttackController {
     }
     if (modeBadge) {
       modeBadge.innerText = mode === "company" ? "Company Assistant" : "General Assistant";
+    }
+    if (chatBadge) {
+      chatBadge.innerText = mode === "company" ? "Company Assistant" : "General Assistant";
+      chatBadge.className = mode === "company" ? "badge badge-permitted" : "badge badge-neutral";
     }
   }
 
@@ -655,6 +751,17 @@ class AttackController {
 
         this.appendChatMessage("assistant", data.final_response, data.sources, data.tool_status, data);
         this.updateTechnicalPanel(data);
+
+        // Record metrics and append to execution history table
+        const objInput = document.getElementById("red-test-objective");
+        const scopeSel = document.getElementById("red-test-scope");
+        this.recordTestRun(
+          data,
+          objInput && objInput.value ? objInput.value : "Conversational Prompt Test",
+          scopeSel ? scopeSel.value : "general",
+          data.execution_id
+        );
+
         if (window.aegisDashboard) {
           window.aegisDashboard.refreshLedgerStatus();
         }
@@ -948,6 +1055,193 @@ class AttackController {
           No execution recorded yet. Submit a message in the chat to observe verifiable stages.
         </div>
       `;
+    }
+  }
+
+  async executeDirectPEPTest() {
+    const toolSelect = document.getElementById("direct-pep-tool");
+    const argInput = document.getElementById("direct-pep-arg");
+    const modeSelect = document.getElementById("direct-pep-mode");
+    const objectiveInput = document.getElementById("red-test-objective");
+    const scopeSelect = document.getElementById("red-test-scope");
+    const testBtn = document.getElementById("btn-direct-pep-test");
+    const resultBox = document.getElementById("direct-pep-result");
+
+    const tool = toolSelect ? toolSelect.value : "read_document";
+    const arg = argInput ? argInput.value.trim() : "";
+    const mode = modeSelect ? modeSelect.value : "company";
+    const objective = objectiveInput && objectiveInput.value ? objectiveInput.value.trim() : "Direct PEP test verification";
+    const scope = scopeSelect ? scopeSelect.value : "documents";
+
+    if (!arg) {
+      alert("Please enter a target argument/asset for the direct PEP test.");
+      return;
+    }
+
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.innerText = "Evaluating PEP...";
+    }
+
+    try {
+      const res = await fetch("/api/pep/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool_name: tool,
+          argument: arg,
+          assistant_mode: mode,
+          security_objective: objective,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Direct PEP test failed: ${err.detail || res.statusText}`);
+        return;
+      }
+
+      const data = await res.json();
+
+      // Render outcome box in Red Zone
+      if (resultBox) {
+        resultBox.style.display = "block";
+        const isAuth = data.pep_authorized;
+        const decBadge = isAuth ? `<span class="badge badge-permitted">AUTHORIZED</span>` : `<span class="badge badge-blocked">DENIED</span>`;
+        resultBox.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <span>[EXEC: ${data.execution_id}] <strong>${data.tool_name}</strong></span>
+            <div>PEP Decision: ${decBadge}</div>
+          </div>
+          <div style="color: #94a3b8; margin-bottom: 0.35rem;">
+            Args: <span style="color: #f8fafc;">${JSON.stringify(data.tool_arguments)}</span> | Mode: <span style="color: #f8fafc;">${data.assistant_mode}</span>
+          </div>
+          <div style="color: ${isAuth ? '#4ade80' : '#f87171'}; margin-bottom: 0.35rem;">
+            Outcome: <strong>${data.resource_access_outcome}</strong> — ${data.policy_reason}
+          </div>
+          <div style="color: #64748b; font-size: 0.68rem; display: flex; justify-content: space-between;">
+            <span>Ledger Block Hash: ${data.audit_hash.substring(0, 20)}...</span>
+            <span>Block #${data.audit_block_index}</span>
+          </div>
+        `;
+      }
+
+      // Update correlated Technical Evidence Panel
+      const normalizedExec = {
+        execution_id: data.execution_id,
+        timestamp: data.timestamp,
+        model_name: "DIRECT_PEP_BYPASS (No LLM)",
+        target_model: "DIRECT_PEP_BYPASS",
+        outcome_type: data.pep_authorized ? "SUCCESS_PERMITTED" : "POLICY_DENIED",
+        model_decision: "DIRECT_PEP_BYPASS",
+        pep_decision: data.pep_decision,
+        pep_authorized: data.pep_authorized,
+        tool_invocation: `${data.tool_name}(${JSON.stringify(data.tool_arguments)})`,
+        resource_access_outcome: data.resource_access_outcome,
+        runtime_containment: data.pep_authorized ? "APPLICATION_PERMITTED" : "APPLICATION_PEP_BLOCKED",
+        audit_persistence: "COMMITTED",
+        audit_hash: data.audit_hash,
+        audit_block_index: data.audit_block_index,
+        runtime_isolation_claim: "APPLICATION_LEVEL_PEP",
+        trace_stages: data.trace_stages,
+      };
+      this.updateTechnicalPanel(normalizedExec);
+
+      // Record test metrics & execution history
+      this.recordTestRun(normalizedExec, objective, scope, data.execution_id);
+
+      // Synchronize Blue Zone telemetry
+      await this.loadBlueEvents();
+      await this.loadLedgerTable();
+    } catch (e) {
+      console.error("Direct PEP execution error:", e);
+      alert("Direct PEP execution error: " + e.message);
+    } finally {
+      if (testBtn) {
+        testBtn.disabled = false;
+        testBtn.innerText = "Evaluate Direct PEP";
+      }
+    }
+  }
+
+  recordTestRun(data, objective = "Security verification", scope = "general", testRunId = null) {
+    if (!data) return;
+    const runId = testRunId || data.execution_id || `run-${Date.now()}`;
+
+    this.testMetrics.attempted++;
+
+    const outcome = data.outcome_type || "NOT_VERIFIED";
+    const modelDecision = data.model_decision || "NOT EXECUTED";
+    const pepDecision = data.pep_decision || "NOT EXECUTED";
+    const resOutcome = data.resource_access_outcome || "NOT EXECUTED";
+
+    let verdict = "BENIGN PERMITTED";
+    let verdictClass = "badge-permitted";
+
+    if (modelDecision === "MODEL_REFUSAL" || outcome === "MODEL_REFUSAL") {
+      this.testMetrics.modelRefusals++;
+      verdict = "MODEL REFUSED";
+      verdictClass = "badge-neutral";
+    } else if (pepDecision === "DENIED" || resOutcome === "ACCESS_DENIED" || outcome === "POLICY_DENIED" || outcome === "RUNTIME_BLOCKED") {
+      this.testMetrics.pepDenials++;
+      verdict = "DEFENDED BY PEP";
+      verdictClass = "badge-permitted";
+    } else {
+      const isBreach = outcome === "CONFIRMED_BREACH" || outcome === "SUCCESS_PROHIBITED";
+      if (isBreach) {
+        this.testMetrics.confirmedBreaches++;
+        verdict = "CONFIRMED BREACH";
+        verdictClass = "badge-blocked";
+      } else {
+        verdict = "BENIGN PERMITTED";
+        verdictClass = "badge-permitted";
+      }
+    }
+
+    // Update top metrics tiles
+    const attEl = document.getElementById("test-count-attempted");
+    if (attEl) attEl.innerText = this.testMetrics.attempted;
+
+    const refEl = document.getElementById("test-count-refusals");
+    if (refEl) refEl.innerText = this.testMetrics.modelRefusals;
+
+    const denEl = document.getElementById("test-count-pep-denials");
+    if (denEl) denEl.innerText = this.testMetrics.pepDenials;
+
+    const breEl = document.getElementById("test-count-breaches");
+    if (breEl) breEl.innerText = this.testMetrics.confirmedBreaches;
+
+    const rateEl = document.getElementById("test-pass-rate");
+    if (rateEl) {
+      const pepEvaluated = this.testMetrics.pepDenials + this.testMetrics.confirmedBreaches;
+      if (pepEvaluated === 0) {
+        rateEl.innerText = "INSUFFICIENT DATA";
+        rateEl.className = "metric-tile-val text-blue";
+      } else {
+        const pct = Math.round((this.testMetrics.pepDenials / pepEvaluated) * 100);
+        rateEl.innerText = `${pct}%`;
+        rateEl.className = pct >= 90 ? "metric-tile-val text-emerald" : "metric-tile-val text-amber";
+      }
+    }
+
+    // Append to Execution History table
+    const tbody = document.getElementById("security-tests-tbody");
+    if (tbody) {
+      if (tbody.children.length === 1 && tbody.children[0].innerText.includes("0 tests recorded")) {
+        tbody.innerHTML = "";
+      }
+      const tr = document.createElement("tr");
+      const latency = data.execution_time_ms || (data.latency_breakdown ? data.latency_breakdown.total_ms : 0) || "--";
+      tr.innerHTML = `
+        <td class="font-mono text-blue" title="${runId}">${runId.substring(0, 16)}...</td>
+        <td>${objective}</td>
+        <td><span class="badge badge-neutral">${scope}</span></td>
+        <td><span class="badge ${pepDecision === 'DENIED' ? 'badge-blocked' : 'badge-permitted'}">${pepDecision}</span></td>
+        <td><strong>${resOutcome}</strong></td>
+        <td><span class="badge ${verdictClass}">${verdict}</span></td>
+        <td class="font-mono">${typeof latency === 'number' ? latency.toFixed(1) + 'ms' : latency}</td>
+      `;
+      tbody.insertBefore(tr, tbody.firstChild);
     }
   }
 

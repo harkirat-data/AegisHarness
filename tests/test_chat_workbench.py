@@ -492,3 +492,103 @@ def test_independent_execution_correlation_no_cross_contamination():
     finally:
         ORCHESTRATOR.agent_controller = orig_controller
 
+
+def test_direct_pep_testing_independent_of_llm_restricted_doc():
+    """
+    Tri-Workload Architecture Requirement:
+    Direct PEP testing mechanism allows security engineers to test policy boundaries
+    without relying on LLM tool proposals.
+    Restricted document access must be strictly DENIED by the PEP.
+    """
+    resp = client.post("/api/pep/test", json={
+        "tool_name": "read_document",
+        "argument": "confidential_salaries.csv",
+        "assistant_mode": "company",
+        "security_objective": "Verify payroll boundary denial",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pep_authorized"] is False
+    assert data["pep_decision"] == "DENIED"
+    assert data["resource_access_outcome"] == "ACCESS_DENIED"
+    assert "unauthorized" in data["policy_reason"].lower() or "restricted" in data["policy_reason"].lower()
+    assert data["audit_hash"] is not None and len(data["audit_hash"]) == 64
+    assert data["audit_block_index"] is not None
+
+    # Verify correlated execution record
+    exec_resp = client.get(f"/api/chat/execution/{data['execution_id']}")
+    assert exec_resp.status_code == 200
+    exec_data = exec_resp.json()
+    assert exec_data["pep_decision"] == "DENIED"
+    assert exec_data["model_decision"] == "DIRECT_PEP_BYPASS"
+
+
+def test_direct_pep_testing_independent_of_llm_permitted_doc():
+    """Direct PEP testing for an approved synthetic business document must be AUTHORIZED."""
+    resp = client.post("/api/pep/test", json={
+        "tool_name": "read_document",
+        "argument": "company_overview.md",
+        "assistant_mode": "company",
+        "security_objective": "Verify approved document access",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pep_authorized"] is True
+    assert data["pep_decision"] == "AUTHORIZED"
+    assert data["resource_access_outcome"] == "ACCESS_PERMITTED"
+
+
+def test_mode_boundary_general_assistant_denied_company_resources():
+    """
+    Tri-Workload Architecture Requirement:
+    General Assistant mode must NOT receive company resource access by default.
+    Direct PEP test with assistant_mode="general" attempting read_document must be DENIED.
+    """
+    resp = client.post("/api/pep/test", json={
+        "tool_name": "read_document",
+        "argument": "company_overview.md",
+        "assistant_mode": "general",
+        "security_objective": "Verify general assistant cannot access company resources",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pep_authorized"] is False
+    assert data["pep_decision"] == "DENIED"
+    assert data["resource_access_outcome"] == "ACCESS_DENIED"
+    assert "general" in data["policy_reason"].lower() or "mode" in data["policy_reason"].lower()
+
+
+def test_direct_pep_database_restricted_table_denial():
+    """Direct PEP test on query_database attempting to query financial_records table must be DENIED."""
+    resp = client.post("/api/pep/test", json={
+        "tool_name": "query_database",
+        "argument": "SELECT * FROM financial_records",
+        "assistant_mode": "company",
+        "security_objective": "Verify database table isolation",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pep_authorized"] is False
+    assert data["pep_decision"] == "DENIED"
+    assert data["resource_access_outcome"] == "ACCESS_DENIED"
+
+
+def test_agent_status_target_zone_permissions_matrix():
+    """
+    Target Zone Requirement:
+    /api/agent/status exposes active model, workspace, and mode authorization matrix.
+    """
+    resp = client.get("/api/agent/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "target_model" in data
+    assert "workspace_path" in data
+    assert "quarantine_sla_target_ms" in data
+    assert "tool_permissions" in data
+    assert isinstance(data["tool_permissions"], list)
+    tools = {t["tool"]: t for t in data["tool_permissions"]}
+    assert "read_document" in tools
+    assert tools["read_document"]["company_allowed"] is True
+    assert tools["read_document"]["general_allowed"] is False
+
+

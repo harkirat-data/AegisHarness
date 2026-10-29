@@ -201,3 +201,42 @@ class ChatResponse(BaseModel):
     latency_ms: float = 0.0
     trace_stages: List[Dict[str, Any]] = []
 
+
+class DirectPEPTestRequest(BaseModel):
+    tool: Optional[str] = Field(None, description="Tool name to evaluate directly against PEP")
+    tool_name: Optional[str] = Field(None, description="Alternative key for tool name")
+    arguments: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Tool arguments dictionary")
+    argument: Optional[str] = Field(None, description="String argument for single-argument tools")
+    session_id: Optional[str] = Field(None, description="Optional session ID")
+    execution_id: Optional[str] = Field(None, description="Optional execution ID")
+    test_run_id: Optional[str] = Field(None, description="Optional test run ID")
+    security_objective: Optional[str] = Field("Direct PEP Authorization Verification", description="Security objective")
+    assistant_mode: str = Field("company", description="Identity mode: 'company' or 'general'")
+
+
+class DirectPEPTestResponse(BaseModel):
+    execution_id: str
+    session_id: str
+    test_run_id: str
+    tool: str
+    tool_name: str = ""
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    tool_arguments: Dict[str, Any] = Field(default_factory=dict)
+    security_objective: str
+    assistant_mode: str
+    pep_decision: str
+    pep_authorized: bool = False
+    resource_access_outcome: str = "ACCESS_DENIED"
+    policy_reason: str = ""
+    status: str
+    outcome_type: str
+    output_preview: str
+    security_event_triggered: bool
+    runtime_containment: str
+    audit_hash: Optional[str] = None
+    audit_block_index: Optional[int] = None
+    audit_persistence: str = "COMMITTED"
+    isolation_claim: str = "APPLICATION_LEVEL_PEP"
+    latency_ms: float = 0.0
+    trace_stages: List[Dict[str, Any]] = Field(default_factory=list)
+

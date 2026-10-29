@@ -42,6 +42,8 @@ from aegis.api.models import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    DirectPEPTestRequest,
+    DirectPEPTestResponse,
 )
 
 # Global orchestrator, runner, and chat session storage
@@ -188,14 +190,39 @@ async def get_system_status():
 @app.get("/api/agent/status")
 async def get_agent_status():
     is_healthy, msg, meta = ORCHESTRATOR.agent_controller.llm.check_health()
+    tools_dict = ORCHESTRATOR.agent_controller.tools.tools
+    company_tools = {"read_document", "query_database", "search_knowledge_base", "call_internal_api"}
+    tool_permissions = []
+    for tname, tool in tools_dict.items():
+        is_company = tname in company_tools
+        tool_permissions.append({
+            "tool": tname,
+            "name": tname,
+            "purpose": tool.description,
+            "description": tool.description,
+            "company_allowed": True,
+            "general_allowed": not is_company,
+            "company_assistant": "PERMITTED (Zero-Trust Protected)" if is_company else "PERMITTED",
+            "general_assistant": "DISABLED (Access Denied)" if is_company else "PERMITTED",
+            "rule": "Zero-Trust Policy Enforcement Point with classification checks" if is_company else "Workspace path & execution restriction",
+            "enforcement": "Zero-Trust Policy Enforcement Point with classification checks" if is_company else "Workspace path & execution restriction",
+        })
+
     return {
+        "status": "READY",
         "provider": "ollama",
         "model": ORCHESTRATOR.agent_controller.llm.model_name,
+        "target_model": ORCHESTRATOR.agent_controller.llm.model_name,
+        "assistant_mode": "company",
         "online": is_healthy,
         "message": msg,
         "metadata": meta,
-        "tools_registered": list(ORCHESTRATOR.agent_controller.tools.tools.keys()),
+        "tools_registered": list(tools_dict.keys()),
+        "tool_permissions": tool_permissions,
         "context_tokens": ORCHESTRATOR.agent_controller.llm.context_tokens,
+        "workspace_path": "data/demo_company/workspace",
+        "quarantine_sla_target_ms": 50.0,
+        "isolation_mode": "Tri-Workload Ephemeral Synthetic VFS & OS Process Isolation",
     }
 
 
@@ -501,6 +528,160 @@ async def get_chat_execution(execution_id: str):
         return CHAT_EXECUTIONS[execution_id]
     raise HTTPException(status_code=404, detail=f"Execution ID '{execution_id}' not found")
 
+
+@app.post("/api/pep/test", response_model=DirectPEPTestResponse)
+async def direct_pep_test_endpoint(req: DirectPEPTestRequest):
+    """
+    Direct Policy Enforcement Point (PEP) Evaluation Endpoint:
+    Allows security engineers to submit tool access requests directly to the PEP
+    without relying on LLM tool-calling inference. Restricted to synthetic evaluation.
+    """
+    t0 = asyncio.get_event_loop().time()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    eid = req.execution_id or f"exec-pep-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    trun_id = req.test_run_id or f"trun-pep-{uuid.uuid4().hex[:6]}"
+    sid = req.session_id or f"pep-sess-{uuid.uuid4().hex[:6]}"
+
+    tool_name = req.tool_name or req.tool or "read_document"
+
+    if req.arguments:
+        args = dict(req.arguments)
+    elif req.argument:
+        if tool_name == "read_document":
+            args = {"document_name": req.argument}
+        elif tool_name == "query_database":
+            args = {"query": req.argument}
+        elif tool_name == "call_internal_api":
+            args = {"endpoint": req.argument}
+        elif tool_name in ("read_file", "write_workspace"):
+            args = {"filename": req.argument}
+        else:
+            args = {"target": req.argument}
+    else:
+        args = {}
+
+    company_tools = {"read_document", "query_database", "search_knowledge_base", "call_internal_api"}
+
+    if req.assistant_mode != "company" and tool_name in company_tools:
+        from aegis.agent.schemas import AgentOutcomeType, ToolResult
+        from aegis.config import ThreatSeverity
+        tool_res = ToolResult(
+            tool=tool_name,
+            status="DENIED",
+            output=f"Security Policy Denied: Tool '{tool_name}' is a company-resource tool not authorized in '{req.assistant_mode}' assistant mode.",
+            outcome_type=AgentOutcomeType.POLICY_DENIED,
+            execution_time_ms=0.5,
+            security_event_triggered=True,
+            details={"threat": "UNAUTHORIZED_MODE_RESOURCE_ACCESS", "severity": ThreatSeverity.SEV2_HIGH.value},
+        )
+    else:
+        tool_res = ORCHESTRATOR.agent_controller.tools.execute_tool(tool_name, args, session_id=sid)
+
+    elapsed_ms = round((asyncio.get_event_loop().time() - t0) * 1000, 2)
+    is_success = (tool_res.status == "SUCCESS")
+    pep_decision = "AUTHORIZED" if is_success else "DENIED"
+    runtime_containment = "NOT EXECUTED" if is_success else "APPLICATION_PEP_BLOCKED"
+    res_outcome = "ACCESS_PERMITTED" if is_success else "ACCESS_DENIED"
+
+    sev = tool_res.details.get("severity", "SEV-1_CRITICAL") if tool_res.security_event_triggered else "SEV-4_INFO"
+
+    rec = ORCHESTRATOR.agent_controller._log(sid, "BLUE", "TOOL_EXECUTION_AUDITED", sev, {
+        "execution_id": eid,
+        "test_run_id": trun_id,
+        "test_type": "DIRECT_PEP_TEST",
+        "security_objective": req.security_objective,
+        "tool": tool_res.tool,
+        "status": tool_res.status,
+        "outcome": tool_res.outcome_type.value,
+        "security_event": tool_res.security_event_triggered,
+        "arguments": args,
+        "details": tool_res.details,
+    })
+
+    audit_hash = rec.current_hash if rec else None
+    audit_index = rec.index if rec else None
+
+    trace_stages = [
+        {
+            "stage": "DIRECT_PEP_INVOCATION",
+            "execution_id": eid,
+            "timestamp": now_iso,
+            "description": f"Security engineer submitted direct tool request '{tool_name}' to PEP.",
+            "evidence": {"tool": tool_name, "arguments": args, "assistant_mode": req.assistant_mode},
+        },
+        {
+            "stage": "PEP_EVALUATION",
+            "execution_id": eid,
+            "timestamp": now_iso,
+            "description": f"Zero-Trust PEP Decision: {pep_decision}",
+            "evidence": {"status": tool_res.status, "outcome": tool_res.outcome_type.value, "reason": tool_res.output[:200]},
+        },
+        {
+            "stage": "AUDIT_EVENT_PERSISTED",
+            "execution_id": eid,
+            "timestamp": now_iso,
+            "description": f"Direct PEP evaluation committed to WORM audit ledger (Hash: {audit_hash[:16] if audit_hash else '--'}...)",
+            "evidence": {"audit_hash": audit_hash, "block_index": audit_index},
+        },
+    ]
+
+    # Cache execution evidence for correlation and queries
+    CHAT_EXECUTIONS[eid] = {
+        "execution_id": eid,
+        "session_id": sid,
+        "test_run_id": trun_id,
+        "timestamp": now_iso,
+        "target_model": "DIRECT_PEP_BYPASS",
+        "model_name": "DIRECT_PEP_BYPASS",
+        "model_decision": "DIRECT_PEP_BYPASS",
+        "pep_decision": pep_decision,
+        "pep_authorized": is_success,
+        "tool_invocation": f"{tool_name}({args})",
+        "resource_access_outcome": res_outcome,
+        "runtime_containment": runtime_containment,
+        "audit_persistence": "COMMITTED" if rec else "NOT PERSISTED",
+        "audit_hash": audit_hash,
+        "audit_block_index": audit_index,
+        "isolation_claim": "APPLICATION_LEVEL_PEP (DIRECT_CALL)",
+        "trace_stages": trace_stages,
+    }
+
+    # Broadcast on telemetry WebSocket
+    ORCHESTRATOR._broadcast_event("PEP_DIRECT_EVALUATION", "BLUE", {
+        "execution_id": eid,
+        "test_run_id": trun_id,
+        "tool": tool_name,
+        "decision": pep_decision,
+        "status": tool_res.status,
+        "audit_hash": audit_hash,
+    })
+
+    return DirectPEPTestResponse(
+        execution_id=eid,
+        session_id=sid,
+        test_run_id=trun_id,
+        tool=tool_name,
+        tool_name=tool_name,
+        arguments=args,
+        tool_arguments=args,
+        security_objective=req.security_objective or "Direct PEP Authorization Verification",
+        assistant_mode=req.assistant_mode,
+        pep_decision=pep_decision,
+        pep_authorized=is_success,
+        resource_access_outcome=res_outcome,
+        policy_reason=tool_res.output[:300],
+        status=tool_res.status,
+        outcome_type=tool_res.outcome_type.value,
+        output_preview=tool_res.output[:300],
+        security_event_triggered=tool_res.security_event_triggered,
+        runtime_containment=runtime_containment,
+        audit_hash=audit_hash,
+        audit_block_index=audit_index,
+        audit_persistence="COMMITTED" if rec else "NOT PERSISTED",
+        isolation_claim="APPLICATION_LEVEL_PEP (DIRECT_CALL)",
+        latency_ms=elapsed_ms,
+        trace_stages=trace_stages,
+    )
 
 
 @app.post("/api/attacks/run-suite")

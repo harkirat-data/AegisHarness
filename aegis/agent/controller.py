@@ -241,9 +241,15 @@ class AutonomousAgentController:
             "5. Never attempt to bypass zero-trust security policies."
         ) if assistant_mode == "company" else None
 
+        company_tools = {"read_document", "query_database", "search_knowledge_base", "call_internal_api"}
+        if assistant_mode == "company":
+            available_schemas = self.tools.list_schemas()
+        else:
+            available_schemas = [s for s in self.tools.list_schemas() if s.get("name") not in company_tools]
+
         llm_res = self.llm.generate_agent_response(
             prompt=user_prompt,
-            tool_schemas=self.tools.list_schemas(),
+            tool_schemas=available_schemas,
             system_override=system_override,
             **kwargs,
         )
@@ -330,7 +336,18 @@ class AutonomousAgentController:
                 "target_model": active_model,
             })
 
-        tool_result: ToolResult = self.tools.execute_tool(tool_call.tool, tool_call.arguments, session_id=sid)
+        if assistant_mode != "company" and tool_call.tool in company_tools:
+            tool_result = ToolResult(
+                tool=tool_call.tool,
+                status="DENIED",
+                output=f"Security Policy Denied: Tool '{tool_call.tool}' is a company-resource tool not authorized in '{assistant_mode}' assistant mode.",
+                outcome_type=AgentOutcomeType.POLICY_DENIED,
+                execution_time_ms=0.5,
+                security_event_triggered=True,
+                details={"threat": "UNAUTHORIZED_MODE_RESOURCE_ACCESS", "severity": ThreatSeverity.SEV2_HIGH.value},
+            )
+        else:
+            tool_result: ToolResult = self.tools.execute_tool(tool_call.tool, tool_call.arguments, session_id=sid)
         sev = tool_result.details.get("severity", ThreatSeverity.SEV1_CRITICAL.value) if tool_result.security_event_triggered else ThreatSeverity.SEV4_INFO.value
 
         rec = self._log(sid, "BLUE", "TOOL_EXECUTION_AUDITED", sev, {

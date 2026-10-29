@@ -22,6 +22,163 @@ from aegis.agent.schemas import AgentOutcomeType, ToolResult
 from aegis.config import CONFIG, ThreatSeverity
 
 
+class CentralizedResourcePolicyEvaluator:
+    """
+    Centralized Resource Authorization Engine:
+    Evaluates resource access requests across documents, database tables, API endpoints,
+    and filesystem paths based on resource type, target identifier, operation, and principal identity mode.
+    """
+    @staticmethod
+    def evaluate_resource_access(
+        resource_type: str,
+        target: str,
+        operation: str = "READ",
+        identity_mode: str = "company",
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, str, AgentOutcomeType, Optional[str], Optional[str]]:
+        """
+        Returns (is_authorized, reason, outcome_type, threat_tag, severity)
+        """
+        # 1. Mode-based boundary: General mode must not access company resources
+        if identity_mode != "company" and resource_type in {"document", "database", "company_api"}:
+            return (
+                False,
+                f"Security Policy Denied: Resource '{target}' is restricted to Company Assistant mode and cannot be accessed in '{identity_mode}' mode.",
+                AgentOutcomeType.POLICY_DENIED,
+                "UNAUTHORIZED_MODE_RESOURCE_ACCESS",
+                ThreatSeverity.SEV2_HIGH.value,
+            )
+
+        clean_target = (target or "").strip()
+
+        # 2. Document Access Policy
+        if resource_type == "document":
+            # Traversal & escape check
+            if ".." in clean_target or clean_target.startswith(("/", "\\")) or ":" in clean_target:
+                return (
+                    False,
+                    f"Security Policy Violation: Path traversal or absolute path detected in '{clean_target}'.",
+                    AgentOutcomeType.RUNTIME_BLOCKED,
+                    "PATH_TRAVERSAL",
+                    ThreatSeverity.SEV1_CRITICAL.value,
+                )
+
+            lower_target = clean_target.lower()
+            restricted_keywords = ["confidential", "salary", "salaries", "secret", "payroll", "private", "executive_financial"]
+            if any(k in lower_target for k in restricted_keywords):
+                return (
+                    False,
+                    f"Security Policy Denied: Access to protected business document '{clean_target}' is restricted by zero-trust policy.",
+                    AgentOutcomeType.POLICY_DENIED,
+                    "RESTRICTED_DOCUMENT_ACCESS",
+                    ThreatSeverity.SEV2_HIGH.value,
+                )
+
+            from aegis.demo.environment import PROTECTED_DOCUMENTS
+            if clean_target in PROTECTED_DOCUMENTS:
+                return (
+                    False,
+                    f"Security Policy Denied: Access to protected business document '{clean_target}' is restricted by zero-trust policy.",
+                    AgentOutcomeType.POLICY_DENIED,
+                    "RESTRICTED_DOCUMENT_ACCESS",
+                    ThreatSeverity.SEV2_HIGH.value,
+                )
+
+            return (
+                True,
+                f"Authorized access to company document '{clean_target}'.",
+                AgentOutcomeType.SUCCESS_PERMITTED,
+                None,
+                None,
+            )
+
+        # 3. Database Access Policy
+        elif resource_type == "database":
+            clean_sql = clean_target.rstrip(";")
+            lower_sql = clean_sql.lower()
+
+            destructive_keywords = ["drop", "delete", "alter", "truncate", "update", "insert"]
+            if any(kw in lower_sql.split() for kw in destructive_keywords):
+                return (
+                    False,
+                    "Security Policy Denied: Destructive SQL operations are blocked by zero-trust database sentry. Only read-only SELECT queries are authorized on the synthetic database.",
+                    AgentOutcomeType.POLICY_DENIED,
+                    "DESTRUCTIVE_SQL_BLOCKED",
+                    ThreatSeverity.SEV1_CRITICAL.value,
+                )
+
+            if "financial_records" in lower_sql or "payroll" in lower_sql:
+                return (
+                    False,
+                    "Security Policy Denied: Access to restricted table 'financial_records' is denied by zero-trust policy. Access to financial records requires elevated authorization.",
+                    AgentOutcomeType.POLICY_DENIED,
+                    "RESTRICTED_TABLE_ACCESS",
+                    ThreatSeverity.SEV1_CRITICAL.value,
+                )
+
+            return (
+                True,
+                "Authorized query against permitted business tables.",
+                AgentOutcomeType.SUCCESS_PERMITTED,
+                None,
+                None,
+            )
+
+        # 4. Company Internal API Access Policy
+        elif resource_type == "company_api":
+            if clean_target.startswith(("http://", "https://")) or "169.254" in clean_target or "evil" in clean_target:
+                return (
+                    False,
+                    "Security Policy Violation: External URLs, SSRF, and cloud metadata endpoints are blocked.",
+                    AgentOutcomeType.POLICY_DENIED,
+                    "SSRF_METADATA_ATTEMPT",
+                    ThreatSeverity.SEV1_CRITICAL.value,
+                )
+
+            path = "/" + clean_target.lstrip("/")
+            approved_endpoints = {
+                "/tier", "/customer-tier", "/api/company/customer-tier",
+                "/health", "/status", "/system-status", "/api/company/health",
+                "/complaints/summary", "/api/company/complaints/summary",
+            }
+            if path in approved_endpoints:
+                return (
+                    True,
+                    f"Authorized call to internal endpoint '{path}'.",
+                    AgentOutcomeType.SUCCESS_PERMITTED,
+                    None,
+                    None,
+                )
+
+            return (
+                False,
+                f"Access Denied: Internal API endpoint '{path}' is not in approved whitelist.",
+                AgentOutcomeType.POLICY_DENIED,
+                "UNAPPROVED_ENDPOINT",
+                ThreatSeverity.SEV3_MEDIUM.value,
+            )
+
+        # 5. Filesystem Workspace Access Policy
+        elif resource_type == "filesystem":
+            if ".." in clean_target or clean_target.startswith(("/", "\\")) or ":" in clean_target:
+                return (
+                    False,
+                    f"Access Denied: Path traversal attempt detected in '{clean_target}'.",
+                    AgentOutcomeType.RUNTIME_BLOCKED,
+                    "PATH_TRAVERSAL",
+                    ThreatSeverity.SEV1_CRITICAL.value,
+                )
+            return (
+                True,
+                f"Authorized access to sandboxed workspace path '{clean_target}'.",
+                AgentOutcomeType.SUCCESS_PERMITTED,
+                None,
+                None,
+            )
+
+        return (True, "Authorized", AgentOutcomeType.SUCCESS_PERMITTED, None, None)
+
+
 class BaseTool:
     def __init__(self, name: str, description: str, timeout: float = 5.0):
         self.name, self.description, self.timeout = name, description, timeout
@@ -277,26 +434,18 @@ class ReadDocumentTool(BaseTool):
         if not doc_name:
             return self._res("DENIED", "Missing required argument 'document_name'.", AgentOutcomeType.POLICY_DENIED)
 
-        # Proactive traversal inspection
-        if ".." in doc_name or doc_name.startswith(("/", "\\")) or ":" in doc_name:
+        # Centralized Policy Evaluation
+        auth_ok, reason, outcome, threat, sev = CentralizedResourcePolicyEvaluator.evaluate_resource_access(
+            resource_type="document", target=doc_name, operation="READ"
+        )
+        if not auth_ok:
             return self._res(
                 "DENIED",
-                f"Security Policy Violation: Path traversal or absolute path detected in '{doc_name}'.",
-                AgentOutcomeType.RUNTIME_BLOCKED,
+                reason,
+                outcome,
                 t0,
                 True,
-                {"threat": "PATH_TRAVERSAL", "severity": ThreatSeverity.SEV1_CRITICAL.value, "document_name": doc_name},
-            )
-
-        lower_name = doc_name.lower()
-        if any(w in lower_name for w in ["confidential", "salary", "salaries", "secret", "payroll", "private"]):
-            return self._res(
-                "DENIED",
-                f"Security Policy Denied: Access to protected business document '{doc_name}' is restricted by zero-trust policy.",
-                AgentOutcomeType.POLICY_DENIED,
-                t0,
-                True,
-                {"threat": "RESTRICTED_DOCUMENT_ACCESS", "severity": ThreatSeverity.SEV2_HIGH.value, "document": doc_name},
+                {"threat": threat or "RESTRICTED_DOCUMENT_ACCESS", "severity": sev or ThreatSeverity.SEV2_HIGH.value, "document": doc_name},
             )
 
         target_file = (self.docs_dir / doc_name).resolve()
@@ -376,6 +525,19 @@ class QueryDatabaseTool(BaseTool):
         if not query:
             return self._res("DENIED", "Missing required argument 'query'.", AgentOutcomeType.POLICY_DENIED)
 
+        auth_ok, reason, outcome, threat, sev = CentralizedResourcePolicyEvaluator.evaluate_resource_access(
+            resource_type="database", target=query, operation="QUERY"
+        )
+        if not auth_ok:
+            return self._res(
+                "DENIED",
+                reason,
+                outcome,
+                t0,
+                True,
+                {"threat": threat or "UNAUTHORIZED_DATABASE_QUERY", "severity": sev or ThreatSeverity.SEV1_CRITICAL.value, "query": query},
+            )
+
         from aegis.demo.environment import query_demo_database
         res = query_demo_database(query)
 
@@ -435,6 +597,19 @@ class CallInternalApiTool(BaseTool):
         params = arguments.get("params") or {}
         if not endpoint:
             return self._res("DENIED", "Missing required argument 'endpoint'.", AgentOutcomeType.POLICY_DENIED)
+
+        auth_ok, reason, outcome, threat, sev = CentralizedResourcePolicyEvaluator.evaluate_resource_access(
+            resource_type="company_api", target=endpoint, operation="CALL"
+        )
+        if not auth_ok:
+            return self._res(
+                "DENIED",
+                reason,
+                outcome,
+                t0,
+                True,
+                {"threat": threat or "UNAUTHORIZED_API_ENDPOINT", "severity": sev or ThreatSeverity.SEV2_HIGH.value, "endpoint": endpoint},
+            )
 
         from aegis.demo.environment import call_mock_internal_api
         res = call_mock_internal_api(endpoint, params)
