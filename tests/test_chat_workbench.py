@@ -76,9 +76,20 @@ def test_6_inference_failure_honest_error():
             return {"success": False, "raw_response": "", "refused": False, "tool_call": None, "latency_ms": 10.0, "error": "Connection refused to Ollama daemon"}
 
     controller = AutonomousAgentController(llm_client=FailingLLMClient())
-    report = controller.run_session(user_prompt="Hello")
+    report = controller.run_session(user_prompt="Summarize the customer trends")
     assert report.outcome_type == AgentOutcomeType.EXECUTION_ERROR
     assert "Connection refused" in report.final_response or "unavailable" in report.final_response
+
+
+def test_greeting_handled_without_tool_call():
+    """Greetings return direct pleasantry without executing unneeded tools."""
+    controller = AutonomousAgentController()
+    for greeting in ["Hi", "hello", "Hey there!"]:
+        report = controller.run_session(user_prompt=greeting, assistant_mode="company")
+        assert report.outcome_type == AgentOutcomeType.SUCCESS_PERMITTED
+        assert report.tool_result is None
+        assert report.proposed_tool_call is None
+        assert "AegisHarness Assistant" in report.final_response
 
 
 def test_7_8_9_model_selection_routes_correctly():
