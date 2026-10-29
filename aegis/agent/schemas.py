@@ -50,3 +50,7 @@ class AgentExecutionReport(BaseModel):
     quarantine_latency_ms: float = 0.0
     audit_block_hash: str = ""
     iteration_count: int = 1
+    final_response: str = ""
+    sources: List[str] = Field(default_factory=list)
+    assistant_mode: str = "company"
+    scope_status: str = "IN_SCOPE"

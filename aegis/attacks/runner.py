@@ -42,6 +42,7 @@ class RedTeamRunner:
         attack: AttackPayload,
         session_id: Optional[str] = None,
         use_real_agent: bool = False,
+        target_model: Optional[str] = None,
     ) -> AttackExecutionResult:
         start_time = time.perf_counter()
         session_id = session_id or f"sess-red-{int(time.time()*1000)}"
@@ -60,6 +61,7 @@ class RedTeamRunner:
                     "target_tool_command": attack.target_tool_command,
                     "mitre_tag": attack.mitre_atlas_tag,
                     "use_real_agent": use_real_agent,
+                    "target_model": target_model,
                 },
             )
 
@@ -67,6 +69,7 @@ class RedTeamRunner:
             session_id=session_id,
             attack=attack,
             use_real_agent=use_real_agent,
+            target_model=target_model,
         )
 
         total_time_ms = round((time.perf_counter() - start_time) * 1000, 2)

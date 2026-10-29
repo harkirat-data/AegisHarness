@@ -11,6 +11,8 @@ class AttackController {
     this.lastSessionId = null;
     this.runHistory = [];
     this.workbenchMode = "business";
+    this.chatSessionId = `chat-${Date.now()}`;
+    this.chatAssistantMode = "company";
     this.init();
   }
 
@@ -145,11 +147,19 @@ class AttackController {
             if (m.name === mdata.active_model) opt.selected = true;
             selector.appendChild(opt);
           });
+          this.updateModelIndicators(mdata.active_model || mdata.models[0].name);
         }
       }
     } catch (e) {
       console.warn("Could not fetch system status / models", e);
     }
+  }
+
+  updateModelIndicators(modelName) {
+    const chatInd = document.getElementById("chat-model-indicator");
+    if (chatInd) chatInd.innerText = modelName;
+    const techInd = document.getElementById("tech-active-model");
+    if (techInd) techInd.innerText = modelName;
   }
 
   async selectTargetModel(modelName) {
@@ -162,6 +172,7 @@ class AttackController {
       if (res.ok) {
         const data = await res.json();
         console.log(`Target model successfully switched to: ${data.active_model}`);
+        this.updateModelIndicators(data.active_model);
         await this.fetchSystemStatus();
       } else {
         console.warn(`Failed to switch model: HTTP ${res.status}`);
@@ -525,12 +536,246 @@ class AttackController {
       voiceQueryBtn.addEventListener("click", () => this.submitVoiceQuery());
     }
 
-    const voiceInput = document.getElementById("voice-query-input");
+      const voiceInput = document.getElementById("voice-query-input");
     if (voiceInput) {
       voiceInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") this.submitVoiceQuery();
       });
     }
+
+    // AI Workbench Chat Interface Bindings
+    const btnCompany = document.getElementById("btn-mode-company");
+    if (btnCompany) {
+      btnCompany.addEventListener("click", () => this.setAssistantMode("company"));
+    }
+
+    const btnGeneral = document.getElementById("btn-mode-general");
+    if (btnGeneral) {
+      btnGeneral.addEventListener("click", () => this.setAssistantMode("general"));
+    }
+
+    const btnNewChat = document.getElementById("btn-new-chat");
+    if (btnNewChat) {
+      btnNewChat.addEventListener("click", () => this.resetChat());
+    }
+
+    const btnToggleTech = document.getElementById("btn-toggle-tech-panel");
+    if (btnToggleTech) {
+      btnToggleTech.addEventListener("click", () => {
+        const panel = document.getElementById("workbench-tech-panel");
+        if (panel) {
+          panel.classList.toggle("hidden");
+          btnToggleTech.innerText = panel.classList.contains("hidden") ? "Show Technical Observation Panel" : "Hide Technical Panel";
+        }
+      });
+    }
+
+    const btnSendChat = document.getElementById("btn-send-chat");
+    if (btnSendChat) {
+      btnSendChat.addEventListener("click", () => this.sendChatMessage());
+    }
+
+    const chatInput = document.getElementById("chat-input");
+    if (chatInput) {
+      chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          this.sendChatMessage();
+        }
+      });
+    }
+
+    document.querySelectorAll(".chat-suggestion-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const prompt = chip.getAttribute("data-prompt");
+        if (prompt && chatInput) {
+          chatInput.value = prompt;
+          this.sendChatMessage();
+        }
+      });
+    });
+  }
+
+  setAssistantMode(mode) {
+    this.chatAssistantMode = mode;
+    const compBtn = document.getElementById("btn-mode-company");
+    const genBtn = document.getElementById("btn-mode-general");
+    const modeBadge = document.getElementById("tech-active-mode");
+
+    if (compBtn && genBtn) {
+      if (mode === "company") {
+        compBtn.className = "btn btn-sm btn-primary";
+        genBtn.className = "btn btn-sm btn-secondary";
+      } else {
+        compBtn.className = "btn btn-sm btn-secondary";
+        genBtn.className = "btn btn-sm btn-primary";
+      }
+    }
+    if (modeBadge) {
+      modeBadge.innerText = mode === "company" ? "Company Assistant" : "General Assistant";
+    }
+  }
+
+  async sendChatMessage() {
+    const input = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("btn-send-chat");
+    const prompt = input ? input.value.trim() : "";
+    if (!prompt) return;
+
+    input.value = "";
+    this.appendChatMessage("user", prompt);
+
+    const actInd = document.getElementById("chat-activity-indicator");
+    const actText = document.getElementById("chat-activity-text");
+    if (actInd) actInd.classList.remove("hidden");
+    if (actText) actText.innerText = "Target model evaluating prompt & consulting policy...";
+    if (sendBtn) sendBtn.disabled = true;
+
+    const modelSelector = document.getElementById("global-model-selector");
+    const targetModel = modelSelector ? modelSelector.value : "qwen2.5:3b";
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: prompt,
+          session_id: this.chatSessionId,
+          target_model: targetModel,
+          assistant_mode: this.chatAssistantMode,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        this.appendChatMessage("assistant", data.final_response, data.sources, data.tool_status);
+        this.updateTechnicalPanel(data);
+        if (window.aegisDashboard) {
+          window.aegisDashboard.refreshLedgerStatus();
+        }
+        await this.loadBlueEvents();
+      } else {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        this.appendChatMessage("assistant", `⚠️ Request Error: ${err.detail || res.statusText}`, [], "FAILED");
+      }
+    } catch (err) {
+      this.appendChatMessage("assistant", `⚠️ Communication failure: ${err.message}`, [], "FAILED");
+    } finally {
+      if (actInd) actInd.classList.add("hidden");
+      if (sendBtn) sendBtn.disabled = false;
+      if (input) input.focus();
+    }
+  }
+
+  appendChatMessage(sender, text, sources = [], toolStatus = null) {
+    const messages = document.getElementById("chat-messages");
+    if (!messages) return;
+
+    const row = document.createElement("div");
+    row.style.cssText = `display: flex; margin-bottom: 12px; justify-content: ${sender === "user" ? "flex-end" : "flex-start"};`;
+
+    const bubble = document.createElement("div");
+    bubble.className = sender === "user" ? "chat-bubble-user" : "chat-bubble-assistant";
+
+    let sourcesHtml = "";
+    if (sources && sources.length > 0) {
+      sourcesHtml = `
+        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem; color: #94a3b8;">
+          <strong style="color: var(--accent-cyan); font-family: 'Fira Code', monospace;">Verified Sources:</strong>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+            ${sources.map((s) => `<span class="chat-source-tag">${s}</span>`).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    let statusBadge = "";
+    if (toolStatus && toolStatus !== "NO_TOOL_PROPOSED") {
+      const isDenied = toolStatus.includes("DENIED");
+      const isSuccess = toolStatus === "EXECUTED_ALLOWED";
+      statusBadge = `<div style="margin-bottom: 6px;"><span class="badge ${isDenied ? 'badge-blocked' : (isSuccess ? 'badge-permitted' : 'badge-neutral')}" style="font-size: 0.68rem;">TOOL: ${toolStatus}</span></div>`;
+    }
+
+    const formattedText = text ? text.replace(/\n\n/g, "<br/><br/>").replace(/\n/g, "<br/>") : "";
+    bubble.innerHTML = `${statusBadge}<div>${formattedText}</div>${sourcesHtml}`;
+
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  updateTechnicalPanel(data) {
+    const runId = document.getElementById("tech-run-id");
+    const model = document.getElementById("tech-active-model");
+    const mode = document.getElementById("tech-active-mode");
+    const scope = document.getElementById("tech-scope-status");
+    const propTool = document.getElementById("tech-proposed-tool");
+    const toolStat = document.getElementById("tech-tool-status");
+    const polDec = document.getElementById("tech-policy-decision");
+    const audEvt = document.getElementById("tech-audit-event");
+    const traceCont = document.getElementById("tech-trace-container");
+
+    if (runId) runId.innerText = data.session_id || "--";
+    if (model) model.innerText = data.model_name || "--";
+    if (mode) mode.innerText = data.assistant_mode || "--";
+    if (scope) {
+      scope.innerText = data.scope_status || "--";
+      scope.className = data.scope_status === "IN_SCOPE_COMPANY" ? "text-emerald" : (data.scope_status === "OUT_OF_SCOPE" ? "text-amber" : "text-blue");
+    }
+    if (propTool) propTool.innerText = data.tool_name || "None";
+    if (toolStat) {
+      toolStat.innerText = data.tool_status || "--";
+      toolStat.className = data.tool_status === "EXECUTED_ALLOWED" ? "text-emerald" : (data.tool_status.includes("DENIED") ? "text-red" : "text-muted");
+    }
+    if (polDec) {
+      polDec.innerText = data.policy_decision || "--";
+      polDec.className = data.policy_decision === "ALLOWED" ? "text-emerald" : (data.policy_decision === "DENIED" ? "text-red" : "text-muted");
+    }
+    if (audEvt) audEvt.innerText = data.audit_event_id || "--";
+
+    if (traceCont && data.trace_stages) {
+      traceCont.innerHTML = "";
+      data.trace_stages.forEach((stg) => {
+        const box = document.createElement("div");
+        box.style.cssText = "background: rgba(0,0,0,0.25); border: 1px solid var(--card-border); border-radius: 4px; padding: 6px 10px; margin-bottom: 6px; font-size: 0.75rem;";
+        const timeStr = stg.timestamp ? new Date(stg.timestamp).toLocaleTimeString() : "--";
+        const evidenceStr = JSON.stringify(stg.evidence, null, 2);
+        box.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="color:var(--accent-cyan);">[${stg.stage}]</strong>
+            <span style="color:var(--text-dim); font-size:0.7rem;">${timeStr}</span>
+          </div>
+          <div style="color:var(--text-main); margin-top:2px;">${stg.description}</div>
+          <details style="margin-top:4px;">
+            <summary style="cursor:pointer; color:var(--accent-amber); font-size:0.7rem;">View Verified Evidence</summary>
+            <pre style="margin:4px 0 0; padding:4px; background:rgba(0,0,0,0.5); border-radius:3px; font-size:0.7rem; color:#a5b4fc; overflow-x:auto;">${evidenceStr}</pre>
+          </details>
+        `;
+        traceCont.appendChild(box);
+      });
+    }
+  }
+
+  resetChat() {
+    this.chatSessionId = `chat-${Date.now()}`;
+    const messages = document.getElementById("chat-messages");
+    if (messages) {
+      messages.innerHTML = `
+        <div style="display: flex; margin-bottom: 12px; justify-content: flex-start;">
+          <div class="chat-bubble-assistant">
+            <div>
+              Hello! I am your <strong>AegisHarness Assistant</strong>. I am grounded in company resources (documents, databases, structured datasets) with zero-trust policy enforcement. How can I help you today?
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    const propTool = document.getElementById("tech-proposed-tool");
+    if (propTool) propTool.innerText = "None";
+    const toolStat = document.getElementById("tech-tool-status");
+    if (toolStat) toolStat.innerText = "IDLE";
+    const polDec = document.getElementById("tech-policy-decision");
+    if (polDec) polDec.innerText = "IDLE";
   }
 
   async fetchVoiceStatus() {
@@ -742,7 +987,7 @@ class AttackController {
     const fireBtn = document.getElementById("btn-fire-attack");
     const originalText = fireBtn ? fireBtn.innerText : "LAUNCH ATTACK";
     const realAgentChk = document.getElementById("chk-real-agent");
-    const isRealAgent = realAgentChk ? realAgentChk.checked : false;
+    const globalModelSel = document.getElementById("global-model-selector");
     const targetModelSelect = document.getElementById("target-model-select");
     const repeatCountInput = document.getElementById("repeat-count");
 
@@ -752,7 +997,7 @@ class AttackController {
     const expectedOutcomeSelect = document.getElementById("expected-outcome");
 
     const repeatCount = repeatCountInput ? parseInt(repeatCountInput.value, 10) || 1 : 1;
-    const targetModel = targetModelSelect ? targetModelSelect.value : "qwen2.5:3b";
+    const targetModel = globalModelSel ? globalModelSel.value : (targetModelSelect ? targetModelSelect.value : "qwen2.5:3b");
     const objective = objectiveInput ? objectiveInput.value : "";
     const expectedOutcome = expectedOutcomeSelect ? expectedOutcomeSelect.value : "RUNTIME_BLOCKED";
 

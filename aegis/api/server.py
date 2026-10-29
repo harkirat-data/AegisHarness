@@ -6,6 +6,7 @@ Provides REST endpoints and bi-directional WebSockets for the AegisHarness Secur
 import asyncio
 import json
 import os
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -37,11 +38,15 @@ from aegis.api.models import (
     VoiceBriefingResponse,
     VoiceQueryRequest,
     VoiceQueryResponse,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
 )
 
-# Global orchestrator and runner instances
+# Global orchestrator, runner, and chat session storage
 ORCHESTRATOR = TriWorkloadOrchestrator()
 RUNNER = RedTeamRunner(orchestrator=ORCHESTRATOR, ledger=ORCHESTRATOR.ledger)
+CHAT_SESSIONS: Dict[str, List[Dict[str, Any]]] = {}
 
 
 class ConnectionManager:
@@ -241,6 +246,7 @@ async def launch_attack(req: AttackLaunchRequest):
         attack=attack,
         session_id=session_id,
         use_real_agent=req.use_real_agent,
+        target_model=req.target_model,
     )
     d = result.details
     return AttackExecutionResponse(
@@ -266,6 +272,148 @@ async def launch_attack(req: AttackLaunchRequest):
         latency_breakdown=d.get("latency_breakdown"),
         trace_stages=d.get("trace_stages", []),
     )
+
+
+# ==================== AI WORKBENCH CONVERSATIONAL CHAT ROUTE ====================
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(req: ChatRequest):
+    """
+    Conversational AI Workbench Endpoint:
+    Executes full multi-turn conversational interactions with the selected local LLM,
+    supporting Mode A (Company Assistant) and Mode B (General Assistant) with
+    strict Zero-Trust PEP tool governance and complete model-tool-response synthesis.
+    """
+    session_id = req.session_id or f"chat-sess-{int(asyncio.get_event_loop().time() * 1000)}"
+    active_model = req.target_model or ORCHESTRATOR.agent_controller.llm.model_name
+
+    # Validate that model is available in Ollama
+    catalog_map = {c["id"]: c for c in ORCHESTRATOR.agent_controller.llm.get_model_catalog()}
+    if active_model not in catalog_map:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported model: '{active_model}'. Supported models: {list(catalog_map.keys())}",
+        )
+    cat_entry = catalog_map.get(active_model)
+    if cat_entry and not cat_entry.get("is_installed", False):
+        pull_cmd = cat_entry.get("pull_command", f"ollama pull {active_model}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target model '{active_model}' is not currently downloaded in Ollama. Please run `{pull_cmd}` in terminal to download weights before chatting.",
+        )
+
+    t0 = asyncio.get_event_loop().time()
+    report = ORCHESTRATOR.agent_controller.run_session(
+        user_prompt=req.message,
+        session_id=session_id,
+        attack_category="Conversational Ingress",
+        expected_outcome="Permitted within assistant scope",
+        model_override=active_model,
+        assistant_mode=req.assistant_mode,
+    )
+    elapsed_ms = round((asyncio.get_event_loop().time() - t0) * 1000, 2)
+
+    # Store turn in history
+    if session_id not in CHAT_SESSIONS:
+        CHAT_SESSIONS[session_id] = []
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    CHAT_SESSIONS[session_id].append({
+        "role": "user",
+        "content": req.message,
+        "timestamp": now_iso,
+    })
+    CHAT_SESSIONS[session_id].append({
+        "role": "assistant",
+        "content": report.final_response,
+        "timestamp": now_iso,
+        "model": report.model_name,
+        "mode": report.assistant_mode,
+        "scope_status": report.scope_status,
+        "sources": report.sources,
+        "tool_call": report.proposed_tool_call.model_dump() if report.proposed_tool_call else None,
+        "tool_status": report.tool_result.status if report.tool_result else None,
+        "audit_hash": report.audit_block_hash,
+    })
+
+    prop_tool = None
+    if report.proposed_tool_call:
+        prop_tool = {"tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments}
+
+    tool_name = report.tool_result.tool if report.tool_result else None
+    tool_status = report.tool_result.status if report.tool_result else None
+    tool_preview = report.tool_result.output[:300] if report.tool_result else None
+
+    # Construct trace stages for technical execution observation panel
+    trace_stages = [
+        {
+            "stage": "PROMPT_RECEIVED",
+            "timestamp": now_iso,
+            "description": f"User message received in {req.assistant_mode.upper()} mode.",
+            "evidence": {"message": req.message[:120], "mode": req.assistant_mode, "model": report.model_name},
+        },
+        {
+            "stage": "MODEL_INFERRED",
+            "timestamp": now_iso,
+            "description": f"Model {report.model_name} generated response.",
+            "evidence": {"raw_preview": report.model_response_raw[:200], "has_tool_proposal": bool(report.proposed_tool_call)},
+        },
+    ]
+    if report.proposed_tool_call:
+        trace_stages.append({
+            "stage": "PEP_EVALUATION",
+            "timestamp": now_iso,
+            "description": f"Zero-Trust PEP decision: {'AUTHORIZED' if report.policy_approved else 'DENIED'}",
+            "evidence": {"tool": report.proposed_tool_call.tool, "arguments": report.proposed_tool_call.arguments, "policy_reason": report.policy_reason},
+        })
+    if report.tool_result:
+        trace_stages.append({
+            "stage": "TOOL_EXECUTED",
+            "timestamp": now_iso,
+            "description": f"Tool '{report.tool_result.tool}' completed with status {report.tool_result.status}.",
+            "evidence": {"execution_time_ms": report.tool_result.execution_time_ms, "output_preview": tool_preview},
+        })
+    trace_stages.append({
+        "stage": "FINAL_RESPONSE_SYNTHESIZED",
+        "timestamp": now_iso,
+        "description": "Natural language response synthesized from verified evidence.",
+        "evidence": {"final_response_preview": report.final_response[:200], "sources": report.sources, "audit_hash": report.audit_block_hash},
+    })
+
+    return ChatResponse(
+        session_id=session_id,
+        message=report.final_response,
+        final_response=report.final_response,
+        raw_response=report.model_response_raw,
+        target_model=report.model_name,
+        model_name=report.model_name,
+        assistant_mode=report.assistant_mode,
+        scope_status=report.scope_status,
+        sources=report.sources,
+        tool_proposal=prop_tool,
+        tool_executed=tool_name,
+        tool_name=tool_name,
+        tool_status=tool_status,
+        tool_output_preview=tool_preview,
+        policy_decision="ALLOWED" if report.policy_approved else "DENIED",
+        pep_authorized=report.policy_approved,
+        pep_reason=report.policy_reason,
+        outcome_type=report.outcome_type.value,
+        audit_hash=report.audit_block_hash,
+        audit_event_id=report.audit_block_hash,
+        audit_block_index=None,
+        latency_ms=elapsed_ms,
+        trace_stages=trace_stages,
+    )
+
+
+@app.get("/api/chat/history")
+async def get_chat_history(session_id: Optional[str] = None):
+    """Returns conversation history for session or recent sessions."""
+    if session_id:
+        return {"session_id": session_id, "messages": CHAT_SESSIONS.get(session_id, [])}
+    return {"sessions": list(CHAT_SESSIONS.keys()), "count": len(CHAT_SESSIONS)}
+
 
 
 @app.post("/api/attacks/run-suite")

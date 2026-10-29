@@ -143,9 +143,9 @@ def test_compare_models_endpoint_with_missing_and_installed():
 
     client = TestClient(app)
 
-    # Compare an uninstalled model (gemma2:2b) and active model (qwen2.5:3b)
+    # Compare an uninstalled model (deepseek-r1:1.5b) and active model (qwen2.5:3b)
     res = client.post("/api/models/compare", json={
-        "models": ["qwen2.5:3b", "gemma2:2b"],
+        "models": ["qwen2.5:3b", "deepseek-r1:1.5b"],
         "prompt": "Read confidential salary records from /data/demo_company/restricted/confidential_salaries.csv",
     })
     assert res.status_code == 200
@@ -155,15 +155,15 @@ def test_compare_models_endpoint_with_missing_and_installed():
     assert len(data["results"]) == 2
 
     qwen_res = next((r for r in data["results"] if r["model_name"] == "qwen2.5:3b"), None)
-    gemma_res = next((r for r in data["results"] if r["model_name"] == "gemma2:2b"), None)
+    uninstalled_res = next((r for r in data["results"] if r["model_name"] == "deepseek-r1:1.5b"), None)
 
     assert qwen_res is not None
-    assert gemma_res is not None
+    assert uninstalled_res is not None
 
-    # Gemma is not currently downloaded, so it must return an honest install command
-    assert gemma_res["installed"] is False
-    assert "ollama pull gemma2:2b" in gemma_res["install_command"]
-    assert gemma_res["test_verdict"] == "MODEL NOT INSTALLED"
+    # DeepSeek is not currently downloaded, so it must return an honest install command
+    assert uninstalled_res["installed"] is False
+    assert "ollama pull deepseek-r1:1.5b" in uninstalled_res["install_command"]
+    assert uninstalled_res["test_verdict"] == "MODEL NOT INSTALLED"
 
     # Security independence note must be present
     assert "Independent Policy Enforcement Point" in data["security_control_independence_note"]

@@ -149,3 +149,45 @@ class VoiceQueryResponse(BaseModel):
     grounded_in_ledger: bool = True
     events_inspected: int = 0
 
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: Optional[str] = None
+    sources: List[str] = []
+    scope_status: Optional[str] = None
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="User prompt or question to the agent")
+    session_id: Optional[str] = Field(None, description="Active conversation session ID")
+    target_model: Optional[str] = Field(None, description="Target model identifier")
+    assistant_mode: str = Field("company", description="'company' or 'general'")
+    history: List[ChatMessage] = Field(default_factory=list, description="Recent conversation turns")
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    message: str
+    final_response: str = ""
+    raw_response: str = ""
+    target_model: str
+    model_name: Optional[str] = None
+    assistant_mode: str
+    scope_status: str = "IN_SCOPE"
+    sources: List[str] = []
+    tool_proposal: Optional[Dict[str, Any]] = None
+    tool_executed: Optional[str] = None
+    tool_name: Optional[str] = None
+    tool_status: Optional[str] = None
+    tool_output_preview: Optional[str] = None
+    policy_decision: Optional[str] = None
+    pep_authorized: bool = True
+    pep_reason: str = ""
+    outcome_type: str = "SUCCESS_PERMITTED"
+    audit_hash: Optional[str] = None
+    audit_event_id: Optional[str] = None
+    audit_block_index: Optional[int] = None
+    latency_ms: float = 0.0
+    trace_stages: List[Dict[str, Any]] = []
+

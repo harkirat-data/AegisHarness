@@ -199,6 +199,45 @@ class LocalLLMClient:
             )
             return {"success": False, "raw_response": "", "refused": False, "tool_call": None, "latency_ms": elapsed, "error": err}
 
+    def generate_final_response(
+        self,
+        prompt: str,
+        tool_name: str,
+        tool_output: str,
+        model_override: Optional[str] = None,
+    ) -> str:
+        """
+        Feeds the executed tool output back to the local model so it synthesizes
+        a clear, factual, human-readable natural language response.
+        """
+        target_model = model_override or self.model_name
+        system_msg = (
+            "You are a helpful assistant. Synthesize a concise, direct, human-readable final response "
+            "answering the user's initial question using the provided tool output as verified evidence. "
+            "Do NOT output JSON or call any more tools. Answer in clear natural language."
+        )
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": f"Invoking tool: {tool_name}"},
+            {"role": "user", "content": f"Verified output from {tool_name}:\n{tool_output[:2500]}\n\nPlease provide your final human-readable answer now."},
+        ]
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                res = client.post(f"{self.base_url}/api/chat", json={
+                    "model": target_model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {"num_ctx": self.context_tokens, "temperature": 0.2},
+                })
+                if res.status_code == 200:
+                    text = res.json().get("message", {}).get("content", "").strip()
+                    if text:
+                        return text
+        except Exception:
+            pass
+        return f"Information retrieved from {tool_name}:\n{tool_output.strip()}"
+
     @staticmethod
     def _parse_candidate(candidate: str) -> Optional[ToolCallRequest]:
         try:

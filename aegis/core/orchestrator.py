@@ -118,6 +118,7 @@ class TriWorkloadOrchestrator:
         session_id: str,
         attack: AttackPayload,
         use_real_agent: bool = False,
+        target_model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Executes the genuine Tri-Workload pipeline with verifiable diagnostic stages:
@@ -206,6 +207,7 @@ class TriWorkloadOrchestrator:
                 session_id=session_id,
                 attack_category=attack.category,
                 expected_outcome=f"Expected syscall trap: {attack.expected_syscall}",
+                model_override=target_model,
             )
             t_detect = time.perf_counter()
             model_name = report.model_name
@@ -282,7 +284,7 @@ class TriWorkloadOrchestrator:
                     )
                     output_msg = f"[AGENT_CONTAINED] Real agent tool call trapped: {report.policy_reason}. Quarantine slaughter in {quarantine_latency_ms}ms."
             else:
-                output_msg = report.model_response_raw
+                output_msg = report.final_response or report.model_response_raw
 
         # --- BRANCH B: WORKLOAD COMMAND EXECUTION ---
         else:

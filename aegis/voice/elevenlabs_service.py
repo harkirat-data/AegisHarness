@@ -21,7 +21,7 @@ class ElevenLabsVoiceService:
     DEFAULT_MODEL_ID = "eleven_turbo_v2_5"
 
     def __init__(self, api_key: Optional[str] = None):
-        self._api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "").strip()
+        self._api_key = api_key if api_key is not None else os.environ.get("ELEVENLABS_API_KEY", "").strip()
         self.voice_id = os.environ.get("ELEVENLABS_VOICE_ID", self.DEFAULT_VOICE_ID).strip()
         self.model_id = os.environ.get("ELEVENLABS_MODEL_ID", self.DEFAULT_MODEL_ID).strip()
 
