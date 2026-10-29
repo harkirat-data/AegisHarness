@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import List, Set
+from dotenv import load_dotenv
+
+# Load local environment variables (.env is ignored in git)
+load_dotenv()
 
 
 class ThreatSeverity(str, Enum):

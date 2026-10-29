@@ -17,8 +17,8 @@ import httpx
 
 class ElevenLabsVoiceService:
     BASE_URL = "https://api.elevenlabs.io/v1"
-    DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel (clear, calm security briefing voice)
-    DEFAULT_MODEL_ID = "eleven_multilingual_v2"
+    DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George (clean, accessible free-tier voice)
+    DEFAULT_MODEL_ID = "eleven_turbo_v2_5"
 
     def __init__(self, api_key: Optional[str] = None):
         self._api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "").strip()
