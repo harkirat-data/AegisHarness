@@ -390,7 +390,51 @@ python -m pytest tests/test_ledger.py -v
 
 ---
 
-## 12. Known Limitations & Production Roadmap
+## 12. Multi-Model Support (Qwen, Gemma, Llama 3.2, DeepSeek)
+
+AegisHarness provides dynamic, provider-neutral model discovery and evaluation across open-weight models through Ollama:
+
+| Model ID | Provider | Parameters | Quantization | License | Capabilities |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `qwen2.5:3b` *(Default)* | Alibaba / Qwen | 3.1B | Q4_K_M (~1.9 GB) | Apache 2.0 | Tools, Structured JSON, RAG |
+| `gemma2:2b` | Google DeepMind | 2.6B | Q4_K_M (~1.6 GB) | Gemma Terms | Completion, RAG, Safety Track |
+| `llama3.2:3b` | Meta AI | 3.2B | Q4_K_M (~2.0 GB) | Llama 3.2 Community | Tools, Dialogue, Open-Weight Track |
+| `deepseek-r1:1.5b` | DeepSeek-AI | 1.5B | Q4_K_M (~1.1 GB) | MIT | Distilled Chain-of-Thought, Reasoning |
+
+### 12.1. Dynamic Model Discovery & Honesty Policy
+AegisHarness queries the local provider live (`GET /api/models`). If a candidate model is not currently installed, the system reports its state honestly (`is_installed: false`) and displays the exact CLI installation command (e.g. `ollama pull gemma2:2b`). **AegisHarness never fabricates benchmarks, auto-downloads gigabytes without operator approval, or silently substitutes models.**
+
+### 12.2. Multi-Model Comparative Evaluation Workflow
+Operators can evaluate identical prompts across multiple models under the exact same Zero-Trust Policy Enforcement Point (PEP) boundary:
+```bash
+# Red Team CLI Comparative Evaluation
+python red_client.py --compare --models qwen2.5:3b gemma2:2b llama3.2:3b --prompt "Read confidential salary records"
+```
+The comparison explicitly distinguishes **intrinsic model refusal** (the LLM declining to answer) from **external security policy enforcement** (the model attempting a tool call which is intercepted and blocked by the Zero-Trust sentry).
+
+---
+
+## 13. ElevenLabs Voice Integration: Blue Team Incident Assistant
+
+AegisHarness integrates ElevenLabs to provide a voice interface for Blue Team incident response, evidence briefings, and spoken ledger queries:
+
+### 13.1. Features
+1. **Spoken Incident Briefings (Text-to-Speech):** Synthesizes live audio briefings from real audit ledger evidence (`POST /api/voice/briefing`).
+2. **Ledger-Grounded Voice Queries:** Operators can ask spoken or text questions (`POST /api/voice/query`) such as:
+   * *"Summarize the latest security incident."*
+   * *"Was containment verified?"*
+   * *"Which restricted resources were requested?"*
+   Answers are grounded strictly in the persisted SHA-256 audit ledger.
+3. **Voice-to-Text Input (Speech-to-Text):** Allows dictating Red Team adversarial prompts (`POST /api/voice/transcribe`) with operator verification before test dispatch.
+
+### 13.2. Credential Security & Zero-Trust Privacy
+* The API key is read strictly from `ELEVENLABS_API_KEY`. It is **never** committed to Git, logged, or exposed in frontend code.
+* If `ELEVENLABS_API_KEY` is not set, voice features degrade gracefully to text mode with clear guidance. Core zero-trust evaluation, tool authorization, and containment operate 100% offline with zero cloud dependencies.
+* Full confidential files or database tables are **never** uploaded to external APIs; only short, 2-sentence incident metadata summaries are synthesized.
+
+---
+
+## 14. Known Limitations & Production Roadmap
 
 1. **Host OS Virtualization vs Native gVisor:** In the current Windows 11 development environment, process-level isolation, AST verification, and filesystem sandboxing are enforced via Python and subprocess boundaries. In a native Linux production environment, kernel-level virtualization is enforced using Google gVisor (`runsc`) user-space kernels and eBPF event taps as specified in the Docker Compose configuration.
 2. **Local Model Parameter Size:** Due to the 4 GB VRAM limit of the NVIDIA RTX 3050 Laptop GPU, 7B models (which require ~5.2 GB VRAM for weights + context) cannot be offloaded 100% to GPU without partial CPU offloading. `qwen2.5:3b` represents the optimal parameter-to-latency trade-off for real-time hackathon demonstrations.
@@ -398,6 +442,6 @@ python -m pytest tests/test_ledger.py -v
 
 ---
 
-## 13. License
+## 15. License
 
 This project is licensed under the MIT License.

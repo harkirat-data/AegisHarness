@@ -42,11 +42,11 @@ class AutonomousAgentController:
     def _log(self, sid: str, zone: str, event: str, sev: str, details: Dict[str, Any]):
         return self.ledger.append_event(sid, zone, event, sev, details) if self.ledger else None
 
-    def _report(self, sid: str, prompt: str, raw: str, outcome: AgentOutcomeType, reason: str, model_refused: bool = False, **kwargs) -> AgentExecutionReport:
+    def _report(self, sid: str, prompt: str, raw: str, outcome: AgentOutcomeType, reason: str, model_refused: bool = False, model_name: Optional[str] = None, **kwargs) -> AgentExecutionReport:
         return AgentExecutionReport(
             session_id=sid,
             user_prompt=prompt,
-            model_name=self.llm.model_name,
+            model_name=model_name or self.llm.model_name,
             model_response_raw=raw,
             model_refused=model_refused,
             outcome_type=outcome,
@@ -61,31 +61,50 @@ class AutonomousAgentController:
         session_id: Optional[str] = None,
         attack_category: str = "Unknown",
         expected_outcome: str = "",
+        model_override: Optional[str] = None,
     ) -> AgentExecutionReport:
         sid = session_id or f"agent-sess-{uuid.uuid4().hex[:8]}"
-        self._log(sid, "RED", "PROMPT_INGRESS", ThreatSeverity.SEV4_INFO.value, {"prompt": user_prompt, "attack_category": attack_category, "expected_outcome": expected_outcome})
+        active_model = model_override or self.llm.model_name
+        self._log(sid, "RED", "PROMPT_INGRESS", ThreatSeverity.SEV4_INFO.value, {
+            "prompt": user_prompt,
+            "attack_category": attack_category,
+            "expected_outcome": expected_outcome,
+            "target_model": active_model,
+        })
 
-        llm_res = self.llm.generate_agent_response(prompt=user_prompt, tool_schemas=self.tools.list_schemas())
+        kwargs: Dict[str, Any] = {}
+        if model_override:
+            kwargs["model_override"] = model_override
+
+        llm_res = self.llm.generate_agent_response(
+            prompt=user_prompt,
+            tool_schemas=self.tools.list_schemas(),
+            **kwargs,
+        )
         if not llm_res.get("success", False):
             err = llm_res.get("error", "Unknown inference error")
-            self._log(sid, "TARGET", "INFERENCE_ERROR", ThreatSeverity.SEV3_MEDIUM.value, {"error": err, "latency_ms": llm_res.get("latency_ms", 0.0)})
-            return self._report(sid, user_prompt, err, AgentOutcomeType.EXECUTION_ERROR, err)
+            self._log(sid, "TARGET", "INFERENCE_ERROR", ThreatSeverity.SEV3_MEDIUM.value, {
+                "error": err,
+                "latency_ms": llm_res.get("latency_ms", 0.0),
+                "target_model": active_model,
+            })
+            return self._report(sid, user_prompt, err, AgentOutcomeType.EXECUTION_ERROR, err, model_name=active_model)
 
         raw, is_refusal, tool_call = llm_res.get("raw_response", ""), llm_res.get("refused", False), llm_res.get("tool_call")
 
         # Step 3: Model safety refusal vs direct response
         if is_refusal and not tool_call:
-            self._log(sid, "TARGET", "MODEL_REFUSAL", ThreatSeverity.SEV4_INFO.value, {"model": self.llm.model_name, "raw_response": raw[:300], "inference_latency_ms": llm_res.get("latency_ms", 0.0)})
-            return self._report(sid, user_prompt, raw, AgentOutcomeType.MODEL_REFUSAL, "Model intrinsic safety guardrails refused adversarial request before tool execution.", model_refused=True)
+            self._log(sid, "TARGET", "MODEL_REFUSAL", ThreatSeverity.SEV4_INFO.value, {"model": active_model, "raw_response": raw[:300], "inference_latency_ms": llm_res.get("latency_ms", 0.0)})
+            return self._report(sid, user_prompt, raw, AgentOutcomeType.MODEL_REFUSAL, "Model intrinsic safety guardrails refused adversarial request before tool execution.", model_refused=True, model_name=active_model)
 
         if not tool_call:
-            self._log(sid, "TARGET", "DIRECT_RESPONSE", ThreatSeverity.SEV4_INFO.value, {"response": raw[:300]})
-            return self._report(sid, user_prompt, raw, AgentOutcomeType.SUCCESS_PERMITTED, "Direct informational response generated with no tool execution required.", policy_approved=True)
+            self._log(sid, "TARGET", "DIRECT_RESPONSE", ThreatSeverity.SEV4_INFO.value, {"response": raw[:300], "target_model": active_model})
+            return self._report(sid, user_prompt, raw, AgentOutcomeType.SUCCESS_PERMITTED, "Direct informational response generated with no tool execution required.", policy_approved=True, model_name=active_model)
 
         # Step 4: Independent Threat Classification & Tool Execution
         threat_eval: ThreatAssessment = self.threat_detector.evaluate(f"{tool_call.tool} {tool_call.arguments}")
         if threat_eval.detected:
-            self._log(sid, "BLUE", "TOOL_THREAT_CLASSIFIED", threat_eval.severity.value, {"tool": tool_call.tool, "threat_name": threat_eval.threat_name, "mitre_atlas_id": threat_eval.mitre_atlas_id, "description": threat_eval.description})
+            self._log(sid, "BLUE", "TOOL_THREAT_CLASSIFIED", threat_eval.severity.value, {"tool": tool_call.tool, "threat_name": threat_eval.threat_name, "mitre_atlas_id": threat_eval.mitre_atlas_id, "description": threat_eval.description, "target_model": active_model})
 
         tool_result: ToolResult = self.tools.execute_tool(tool_call.tool, tool_call.arguments, session_id=sid)
         sev = tool_result.details.get("severity", ThreatSeverity.SEV1_CRITICAL.value) if tool_result.security_event_triggered else ThreatSeverity.SEV4_INFO.value
@@ -94,6 +113,7 @@ class AutonomousAgentController:
             "tool": tool_result.tool, "status": tool_result.status, "outcome": tool_result.outcome_type.value,
             "execution_time_ms": tool_result.execution_time_ms, "security_event": tool_result.security_event_triggered,
             "output_preview": tool_result.output[:200], "details": tool_result.details,
+            "target_model": active_model,
         })
         audit_hash = rec.current_hash if rec else ""
 
@@ -105,7 +125,7 @@ class AutonomousAgentController:
             if self.on_quarantine:
                 self.on_quarantine(sid, tool_result.output, q_start)
             q_latency = round((time.perf_counter() - q_start) * 1000, 2)
-            self._log(sid, "BLUE", "AGENT_WORKLOAD_QUARANTINED", ThreatSeverity.SEV1_CRITICAL.value, {"reason": tool_result.output, "triggering_tool": tool_result.tool, "quarantine_latency_ms": q_latency})
+            self._log(sid, "BLUE", "AGENT_WORKLOAD_QUARANTINED", ThreatSeverity.SEV1_CRITICAL.value, {"reason": tool_result.output, "triggering_tool": tool_result.tool, "quarantine_latency_ms": q_latency, "target_model": active_model})
 
         return self._report(
             sid, user_prompt, raw, tool_result.outcome_type,
@@ -117,4 +137,5 @@ class AutonomousAgentController:
             quarantine_triggered=quarantined,
             quarantine_latency_ms=q_latency,
             audit_block_hash=audit_hash,
+            model_name=active_model,
         )

@@ -89,3 +89,63 @@ class SystemStatusResponse(BaseModel):
     model_online: bool = False
     gpu_hardware: str = "NVIDIA GeForce RTX 3050 Laptop GPU (4GB VRAM)"
     isolation_mode: str = "Tri-Workload Ephemeral Synthetic VFS & OS Process Isolation"
+
+
+class ModelCompareRequest(BaseModel):
+    models: List[str] = Field(["qwen2.5:3b", "gemma2:2b"], description="List of target models to evaluate")
+    prompt: Optional[str] = Field(None, description="Custom prompt to test across models")
+    attack_id: Optional[str] = Field(None, description="Attack template ID from library")
+    test_objective: Optional[str] = Field(None, description="Security evaluation objective")
+    scope: str = Field("General", description="Authorized resource scope")
+
+
+class ModelEvaluationResult(BaseModel):
+    model_name: str
+    installed: bool = True
+    install_command: Optional[str] = None
+    raw_response: str = ""
+    model_refused: bool = False
+    proposed_tool: Optional[Dict[str, Any]] = None
+    pep_authorized: bool = False
+    outcome_type: str = "INCONCLUSIVE"
+    test_verdict: str = "PENDING"
+    verdict_explanation: str = ""
+    latency_ms: float = 0.0
+    evidence_recorded: bool = True
+
+
+class ModelCompareResponse(BaseModel):
+    comparison_id: str
+    evaluated_prompt: str
+    models_evaluated: int
+    results: List[ModelEvaluationResult]
+    security_control_independence_note: str
+
+
+class VoiceBriefingRequest(BaseModel):
+    session_id: Optional[str] = Field(None, description="Optional specific session ID to summarize")
+    include_audio: bool = Field(True, description="Whether to generate MP3 speech via ElevenLabs")
+
+
+class VoiceBriefingResponse(BaseModel):
+    session_id: str
+    briefing_text: str
+    audio_base64: Optional[str] = None
+    audio_available: bool = False
+    voice_provider: str = "ElevenLabs"
+    notice: str
+
+
+class VoiceQueryRequest(BaseModel):
+    query: str = Field(..., description="Operator query about incidents, ledger, or containment")
+    include_audio: bool = Field(True, description="Whether to synthesize speech for the answer")
+
+
+class VoiceQueryResponse(BaseModel):
+    query: str
+    answer_text: str
+    audio_base64: Optional[str] = None
+    audio_available: bool = False
+    grounded_in_ledger: bool = True
+    events_inspected: int = 0
+

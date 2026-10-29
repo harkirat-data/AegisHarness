@@ -35,7 +35,7 @@ class TamperProofAuditLedger:
     GENESIS_HASH = "0" * 64
 
     def __init__(self, ledger_path: Optional[Path] = None):
-        self.ledger_path = ledger_path
+        self.ledger_path = Path(ledger_path) if ledger_path else None
         self._records: List[AuditRecord] = []
         self._lock = threading.RLock()
         

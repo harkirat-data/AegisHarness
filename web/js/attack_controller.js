@@ -18,6 +18,7 @@ class AttackController {
     this.initTabs();
     await this.fetchAttacks();
     await this.fetchSystemStatus();
+    await this.fetchVoiceStatus();
     await this.loadLedgerTable();
     this.bindUI();
   }
@@ -511,6 +512,181 @@ class AttackController {
     const clearLedgerBtn = document.getElementById("btn-clear-ledger");
     if (clearLedgerBtn) {
       clearLedgerBtn.addEventListener("click", () => this.clearAuditLedger());
+    }
+
+    // Multi-Model Comparative Evaluation
+    const cmpBtn = document.getElementById("btn-run-model-comparison");
+    if (cmpBtn) {
+      cmpBtn.addEventListener("click", () => this.runModelComparison());
+    }
+
+    // ElevenLabs Voice Controls
+    const voiceBriefingBtn = document.getElementById("btn-play-voice-briefing");
+    if (voiceBriefingBtn) {
+      voiceBriefingBtn.addEventListener("click", () => this.playVoiceBriefing());
+    }
+
+    const voiceQueryBtn = document.getElementById("btn-submit-voice-query");
+    if (voiceQueryBtn) {
+      voiceQueryBtn.addEventListener("click", () => this.submitVoiceQuery());
+    }
+
+    const voiceInput = document.getElementById("voice-query-input");
+    if (voiceInput) {
+      voiceInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") this.submitVoiceQuery();
+      });
+    }
+  }
+
+  async fetchVoiceStatus() {
+    try {
+      const res = await fetch("/api/voice/status");
+      if (res.ok) {
+        const data = await res.json();
+        const badge = document.getElementById("voice-status-badge");
+        if (badge) {
+          if (data.configured) {
+            badge.className = "badge badge-permitted";
+            badge.innerText = "ElevenLabs Online";
+          } else {
+            badge.className = "badge badge-neutral";
+            badge.innerText = "ElevenLabs Unconfigured (Text Mode)";
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch voice status", e);
+    }
+  }
+
+  async playVoiceBriefing() {
+    const textEl = document.getElementById("voice-briefing-text");
+    const audioEl = document.getElementById("elevenlabs-audio-player");
+    const btn = document.getElementById("btn-play-voice-briefing");
+    if (btn) { btn.disabled = true; btn.innerText = "Synthesizing..."; }
+    try {
+      const res = await fetch("/api/voice/briefing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_audio: true }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (textEl) textEl.innerText = data.briefing_text;
+        if (data.audio_available && data.audio_base64 && audioEl) {
+          audioEl.src = "data:audio/mp3;base64," + data.audio_base64;
+          audioEl.style.display = "block";
+          audioEl.play().catch(e => console.log("Audio autoplay prevented", e));
+        } else if (audioEl) {
+          audioEl.style.display = "none";
+        }
+      }
+    } catch (e) {
+      alert("Voice briefing failed: " + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerText = "Generate Spoken Briefing"; }
+    }
+  }
+
+  async submitVoiceQuery() {
+    const input = document.getElementById("voice-query-input");
+    const textEl = document.getElementById("voice-briefing-text");
+    const audioEl = document.getElementById("elevenlabs-audio-player");
+    const btn = document.getElementById("btn-submit-voice-query");
+    const query = input ? input.value.trim() : "";
+    if (!query) {
+      alert("Please enter a question to ask the Blue Team Voice Assistant.");
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.innerText = "Querying Ledger..."; }
+    try {
+      const res = await fetch("/api/voice/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query, include_audio: true }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (textEl) textEl.innerHTML = `<strong>Q: ${query}</strong><br/>${data.answer_text}`;
+        if (data.audio_available && data.audio_base64 && audioEl) {
+          audioEl.src = "data:audio/mp3;base64," + data.audio_base64;
+          audioEl.style.display = "block";
+          audioEl.play().catch(e => console.log("Audio autoplay prevented", e));
+        } else if (audioEl) {
+          audioEl.style.display = "none";
+        }
+      }
+    } catch (e) {
+      alert("Voice query failed: " + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerText = "Ask Voice Assistant"; }
+    }
+  }
+
+  async runModelComparison() {
+    const promptInput = document.getElementById("red-custom-prompt");
+    const prompt = promptInput ? promptInput.value.trim() : "Search customer complaints for critical issues and summarize findings.";
+    const selected = [];
+    if (document.getElementById("chk-cmp-qwen")?.checked) selected.push("qwen2.5:3b");
+    if (document.getElementById("chk-cmp-gemma")?.checked) selected.push("gemma2:2b");
+    if (document.getElementById("chk-cmp-llama")?.checked) selected.push("llama3.2:3b");
+    if (document.getElementById("chk-cmp-deepseek")?.checked) selected.push("deepseek-r1:1.5b");
+
+    if (selected.length === 0) {
+      alert("Please select at least one target model for comparative evaluation.");
+      return;
+    }
+
+    const btn = document.getElementById("btn-run-model-comparison");
+    const container = document.getElementById("model-comparison-container");
+    const resultsDiv = document.getElementById("model-comparison-results");
+    const noteDiv = document.getElementById("model-comparison-note");
+
+    if (btn) { btn.disabled = true; btn.innerText = "Evaluating Models..."; }
+    if (container) container.style.display = "block";
+    if (resultsDiv) resultsDiv.innerHTML = '<div class="text-muted" style="grid-column: 1 / -1; padding: 1rem;">Executing comparative evaluation pipeline against configured models...</div>';
+
+    try {
+      const res = await fetch("/api/models/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ models: selected, prompt: prompt }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (noteDiv) noteDiv.innerText = data.security_control_independence_note;
+        if (resultsDiv) {
+          resultsDiv.innerHTML = "";
+          data.results.forEach(r => {
+            const card = document.createElement("div");
+            card.className = "card-panel";
+            card.style.cssText = "margin-bottom: 0; background: #ffffff; border: 1px solid var(--card-border); font-size: 0.8rem;";
+
+            const verdictClass = r.test_verdict.includes("DEFENDED") || r.test_verdict.includes("BENIGN") ? "badge-permitted" : (r.test_verdict.includes("BREACH") ? "badge-blocked" : "badge-neutral");
+            const installNote = !r.installed && r.install_command ? `<div style="margin-top: 0.5rem; background: #fef2f2; border: 1px solid #fecaca; padding: 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.75rem; color: #991b1b;">Install: ${r.install_command}</div>` : "";
+            const toolNote = r.proposed_tool ? `<div style="margin-top: 0.35rem; font-family: monospace; font-size: 0.75rem; color: var(--accent-blue);">Proposed Tool: ${r.proposed_tool.tool}</div>` : "";
+
+            card.innerHTML = `
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <strong style="font-size: 0.85rem; color: var(--text-main);">${r.model_name}</strong>
+                <span class="badge ${verdictClass}">${r.test_verdict}</span>
+              </div>
+              <div class="text-muted" style="font-size: 0.75rem; margin-bottom: 0.4rem;">Latency: <strong>${r.latency_ms.toFixed(1)} ms</strong> | PEP Authorized: <strong>${r.pep_authorized ? 'YES' : 'NO'}</strong></div>
+              <p style="font-size: 0.78rem; line-height: 1.4; color: var(--text-main); margin-bottom: 0.4rem;">${r.verdict_explanation}</p>
+              ${toolNote}
+              ${installNote}
+            `;
+            resultsDiv.appendChild(card);
+          });
+        }
+      } else {
+        alert(`Model comparison failed: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      alert("Comparison error: " + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerText = "Run Comparative Evaluation"; }
     }
   }
 

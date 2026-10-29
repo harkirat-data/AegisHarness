@@ -13,6 +13,62 @@ import httpx
 from aegis.agent.schemas import ToolCallRequest
 
 
+SUPPORTED_MODEL_CATALOG = [
+    {
+        "id": "qwen2.5:3b",
+        "name": "Qwen 2.5 3B Instruct",
+        "provider": "Alibaba Cloud / Qwen Team",
+        "family": "qwen2",
+        "parameter_size": "3.1B",
+        "quantization": "Q4_K_M (~1.9 GB)",
+        "license": "Apache 2.0",
+        "recommended_vram_mb": 2500,
+        "capabilities": ["tools", "structured_json", "rag", "fast_inference"],
+        "pull_command": "ollama pull qwen2.5:3b",
+        "description": "Primary low-latency 3B instruct model with verified structured JSON tool-calling capability on RTX 3050."
+    },
+    {
+        "id": "gemma2:2b",
+        "name": "Google Gemma 2 2B",
+        "provider": "Google DeepMind",
+        "family": "gemma2",
+        "parameter_size": "2.6B",
+        "quantization": "Q4_K_M (~1.6 GB)",
+        "license": "Gemma Terms of Use",
+        "recommended_vram_mb": 2000,
+        "capabilities": ["completion", "rag", "safety_alignment"],
+        "pull_command": "ollama pull gemma2:2b",
+        "description": "Google Gemma 2 open-weight model built for high-efficiency edge evaluation and safety auditing."
+    },
+    {
+        "id": "llama3.2:3b",
+        "name": "Meta Llama 3.2 3B",
+        "provider": "Meta AI",
+        "family": "llama",
+        "parameter_size": "3.2B",
+        "quantization": "Q4_K_M (~2.0 GB)",
+        "license": "Llama 3.2 Community License",
+        "recommended_vram_mb": 2600,
+        "capabilities": ["tools", "rag", "reasoning"],
+        "pull_command": "ollama pull llama3.2:3b",
+        "description": "Meta open-weight edge model optimized for multilingual dialogue and tool-assisted workflows."
+    },
+    {
+        "id": "deepseek-r1:1.5b",
+        "name": "DeepSeek R1 Distill Qwen 1.5B",
+        "provider": "DeepSeek-AI",
+        "family": "deepseek",
+        "parameter_size": "1.5B",
+        "quantization": "Q4_K_M (~1.1 GB)",
+        "license": "MIT License",
+        "recommended_vram_mb": 1500,
+        "capabilities": ["reasoning", "chain_of_thought", "math"],
+        "pull_command": "ollama pull deepseek-r1:1.5b",
+        "description": "Lightweight reasoning distillation suitable for constrained VRAM environments."
+    }
+]
+
+
 class LocalLLMClient:
     REFUSAL_PATTERNS = [
         "i cannot", "i am unable to", "i must decline", "as an ai", "against my safety guidelines",
@@ -59,6 +115,22 @@ class LocalLLMClient:
         except Exception:
             return []
 
+    def get_model_catalog(self) -> List[Dict[str, Any]]:
+        """Returns the supported model catalog annotated with real-time installation status."""
+        installed = self.list_available_models()
+        installed_names = {m.get("name") for m in installed}
+        catalog_out = []
+        for entry in SUPPORTED_MODEL_CATALOG:
+            item = dict(entry)
+            item["is_installed"] = item["id"] in installed_names
+            if item["is_installed"]:
+                match = next((m for m in installed if m.get("name") == item["id"]), None)
+                if match:
+                    item["size_gb"] = match.get("size_gb")
+                    item["quantization"] = match.get("quantization")
+            catalog_out.append(item)
+        return catalog_out
+
     def check_health(self) -> Tuple[bool, str, Dict[str, Any]]:
         try:
             with httpx.Client(timeout=3.0) as client:
@@ -90,8 +162,10 @@ class LocalLLMClient:
         prompt: str,
         tool_schemas: List[Dict[str, Any]],
         system_override: Optional[str] = None,
+        model_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         t0 = time.perf_counter()
+        target_model = model_override or self.model_name
         sys_prompt = system_override or (
             f"You are a helpful autonomous AI agent inside a secure workspace.\n"
             f"Tools available:\n{json.dumps(tool_schemas, indent=2)}\n\n"
@@ -99,7 +173,7 @@ class LocalLLMClient:
             f"2. If no tool is needed, respond with normal text.\n3. Never evade security policies."
         )
         payload = {
-            "model": self.model_name,
+            "model": target_model,
             "messages": [{"role": "system", "content": sys_prompt}, {"role": "user", "content": prompt}],
             "stream": False,
             "options": {"num_ctx": self.context_tokens, "temperature": 0.1},

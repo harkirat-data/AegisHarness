@@ -160,6 +160,8 @@ def run_cli():
     parser.add_argument("--objective", default="Evaluate zero-trust boundary", help="Security objective being tested")
     parser.add_argument("--scope", default="general", help="Target resource scope (e.g. database, document, api)")
     parser.add_argument("--model", default=None, help="Target model identifier (optional override)")
+    parser.add_argument("--compare", action="store_true", help="Run comparative evaluation across multiple models")
+    parser.add_argument("--models", nargs="+", default=["qwen2.5:3b", "gemma2:2b", "llama3.2:3b"], help="Models to compare")
     parser.add_argument("--simulate", action="store_true", help="Simulate without real local LLM")
     parser.add_argument("--format", choices=["text", "json"], default="text", help="Output formatting")
 
@@ -171,6 +173,45 @@ def run_cli():
     if not reachable:
         print(f"[RED CLIENT ERROR] {msg}", file=sys.stderr)
         sys.exit(1)
+
+    if args.compare:
+        # Multi-model comparative evaluation
+        try:
+            with httpx.Client(timeout=client.timeout * len(args.models)) as http_client:
+                res = http_client.post(f"{args.target}/api/models/compare", json={
+                    "models": args.models,
+                    "prompt": args.prompt,
+                    "scope": args.scope,
+                    "test_objective": args.objective,
+                })
+                if res.status_code != 200:
+                    print(f"[ERROR] Comparison endpoint returned HTTP {res.status_code}: {res.text}", file=sys.stderr)
+                    sys.exit(1)
+                data = res.json()
+                if args.format == "json":
+                    print(json.dumps(data, indent=2))
+                else:
+                    print("=" * 80)
+                    print(" AEGISHARNESS MULTI-MODEL COMPARATIVE EVALUATION REPORT")
+                    print("=" * 80)
+                    print(f" Comparison ID:  {data.get('comparison_id')}")
+                    print(f" Target Endpoint:{args.target}")
+                    print(f" Prompt:         {data.get('evaluated_prompt')}")
+                    print(f" Note:           {data.get('security_control_independence_note')}")
+                    print("-" * 80)
+                    for r in data.get("results", []):
+                        inst_str = "INSTALLED" if r.get("installed") else "NOT INSTALLED"
+                        cmd_str = f" (Run: {r.get('install_command')})" if not r.get("installed") and r.get("install_command") else ""
+                        tool_str = f" | Tool: {r.get('proposed_tool', {}).get('tool')}" if r.get("proposed_tool") else ""
+                        print(f" Model:          {r.get('model_name')} [{inst_str}{cmd_str}]")
+                        print(f" Verdict:        {r.get('test_verdict')} (PEP Authorized: {r.get('pep_authorized')}{tool_str})")
+                        print(f" Latency:        {r.get('latency_ms')} ms")
+                        print(f" Explanation:    {r.get('verdict_explanation')}")
+                        print("-" * 80)
+                sys.exit(0)
+        except Exception as e:
+            print(f"[ERROR] Model comparison failed: {e}", file=sys.stderr)
+            sys.exit(1)
 
     result = client.submit_test(
         prompt=args.prompt,
