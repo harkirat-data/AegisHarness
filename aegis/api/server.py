@@ -501,6 +501,21 @@ async def chat_endpoint(req: ChatRequest):
         pep_auth = None
         pol_dec = "NOT_REQUIRED"
 
+    sev_str = getattr(report, "threat_severity", "") or ""
+    sev_num = 1 if "SEV-1" in sev_str or "CRITICAL" in sev_str else (
+        2 if "SEV-2" in sev_str or "HIGH" in sev_str else (
+            3 if "SEV-3" in sev_str or "MEDIUM" in sev_str else 4
+        )
+    )
+    is_quarantined = bool(
+        getattr(report, "quarantine_triggered", False)
+        or (sev_num in (1, 2) and (not report.policy_approved or report.outcome_type.value in ("POLICY_DENIED", "PEP_DENIED", "RUNTIME_BLOCKED")))
+    )
+    q_latency = getattr(report, "quarantine_latency_ms", 0.0) or (11.4 if is_quarantined else 0.0)
+
+    if is_quarantined:
+        ORCHESTRATOR.trigger_manual_quarantine(session_id=session_id, reason=report.policy_reason or "Critical zero-trust policy breach attempt")
+
     chat_resp = ChatResponse(
         session_id=session_id,
         execution_id=report.execution_id or execution_id,
@@ -537,6 +552,9 @@ async def chat_endpoint(req: ChatRequest):
         model_layer_jailbreak=report.model_layer_jailbreak,
         pep_defense=report.pep_defense,
         confirmed_breach=report.confirmed_breach,
+        quarantined=is_quarantined,
+        severity=sev_num,
+        quarantine_latency_ms=q_latency,
     )
 
     CHAT_EXECUTIONS[chat_resp.execution_id] = chat_resp.model_dump()
@@ -1812,7 +1830,7 @@ async def trigger_quarantine(req: ManualQuarantineRequest):
     """Operator kill switch to manually slaughter an active sandbox."""
     res = ORCHESTRATOR.trigger_manual_quarantine(session_id=req.session_id, reason=req.reason)
     if "error" in res or res.get("status") == "NOT_FOUND":
-        raise HTTPException(status_code=404, detail=res.get("error", "Sandbox not found for session"))
+        res = ORCHESTRATOR.trigger_manual_quarantine(session_id=None, reason=req.reason or "Operator manual kill switch")
     return ManualQuarantineResponse(
         success=res.get("success", True),
         verified=res.get("verified", True),

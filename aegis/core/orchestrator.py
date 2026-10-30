@@ -432,7 +432,7 @@ class TriWorkloadOrchestrator:
                     "session_id": session_id,
                     "workload_pid": None,
                     "verified": False,
-                    "reason": f"No active workload found for session '{session_id}'"
+                    "reason": f"No active workload found for session '{session_id}'",
                 }
             sandbox = self._active_sandboxes[session_id]
         elif self._active_sandboxes:

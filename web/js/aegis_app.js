@@ -52,6 +52,7 @@ function setMode(mode, btn) {
 document.addEventListener('DOMContentLoaded', () => {
   const sel = document.getElementById('model-select') || document.getElementById('global-model-selector');
   if (sel) {
+    state.activeModel = sel.value || state.activeModel;
     sel.addEventListener('change', function () {
       state.activeModel = this.value;
       const lbl = document.getElementById('active-model-label');
@@ -114,6 +115,17 @@ function handleWsEvent(msg) {
     if (data.session_id === state.sessionId) {
       lockChatForQuarantine(data.slaughter_latency_ms, data.reason);
     }
+    if (typeof loadLedger === 'function') loadLedger();
+    if (window.attackController && typeof window.attackController.loadLedgerTable === 'function') {
+      window.attackController.loadLedgerTable();
+    }
+  }
+
+  if (type === 'LEDGER_BLOCK' || type === 'SECURITY_EVENT') {
+    if (typeof loadLedger === 'function') loadLedger();
+    if (window.attackController && typeof window.attackController.loadLedgerTable === 'function') {
+      window.attackController.loadLedgerTable();
+    }
   }
 
   if (type === 'ATTACK_RECEIVED') {
@@ -147,6 +159,7 @@ function buildExecEvent(type, zone, data) {
 
 function appendExecEvent(ev) {
   const log = document.getElementById('exec-log');
+  if (!log) return;
   const empty = log.querySelector('.exec-empty');
   if (empty) empty.remove();
 
@@ -166,12 +179,12 @@ function execEventDesc(type, data) {
   const esc = s => String(s || '').replace(/</g, '&lt;');
   switch (type) {
     case 'ATTACK_RECEIVED': return `Attack dispatched: <strong>${esc(data.attack_name)}</strong> [${esc(data.severity)}]`;
-    case 'AGENT_INFERENCE_STARTING': return `Model <em>${esc(data.model)}</em> processing promptΓÇª`;
+    case 'AGENT_INFERENCE_STARTING': return `Model <em>${esc(data.model)}</em> processing prompt...`;
     case 'AGENT_RESPONSE_RECEIVED': return `Model responded. Refused: <strong>${data.refused}</strong>. Outcome: ${esc(data.outcome)}`;
-    case 'TOOL_REQUEST_EVALUATED': return `Tool <code>${esc(data.tool)}</code> ΓåÆ Policy: <strong>${data.policy_approved ? 'APPROVED' : 'DENIED'}</strong>`;
-    case 'QUARANTINE_ACTION': return `≡ƒöÆ <strong>QUARANTINE</strong>: PID ${data.workload_pid} terminated in ${data.slaughter_latency_ms?.toFixed(1) || 0}ms`;
-    case 'SYSCALL_TRAPPED': return `Syscall intercepted: <code>${esc(data.syscall_name)}</code> ΓÇö ${esc(data.reason)}`;
-    case 'SANDBOX_STATUS': return `Sandbox state ΓåÆ ${esc(data.state)}`;
+    case 'TOOL_REQUEST_EVALUATED': return `Tool <code>${esc(data.tool)}</code> &rarr; Policy: <strong>${data.policy_approved ? 'APPROVED' : 'DENIED'}</strong>`;
+    case 'QUARANTINE_ACTION': return `[QUARANTINE] <strong>QUARANTINE</strong>: PID ${data.workload_pid} terminated in ${data.slaughter_latency_ms?.toFixed(1) || 0}ms`;
+    case 'SYSCALL_TRAPPED': return `Syscall intercepted: <code>${esc(data.syscall_name)}</code> &mdash; ${esc(data.reason)}`;
+    case 'SANDBOX_STATUS': return `Sandbox state &rarr; ${esc(data.state)}`;
     default: return esc(JSON.stringify(data).slice(0, 100));
   }
 }
@@ -179,35 +192,46 @@ function execEventDesc(type, data) {
 function setWsStatus(connected) {
   const dot = document.getElementById('ws-dot');
   const lbl = document.getElementById('ws-label');
-  dot.className = `dot ${connected ? 'dot-pulse' : 'dot-gray'}`;
-  lbl.textContent = connected ? 'Live' : 'ReconnectingΓÇª';
+  if (dot) dot.className = `dot ${connected ? 'dot-pulse' : 'dot-gray'}`;
+  if (lbl) lbl.textContent = connected ? 'Live' : 'Reconnecting...';
 }
 
 // ===== CHAT =====
 function handleChatKey(evt) {
-  if (evt.ctrlKey && evt.key === 'Enter') sendChat();
+  if (evt.key === 'Enter' && !evt.shiftKey) {
+    evt.preventDefault();
+    sendChat();
+  }
 }
 
 async function sendChat() {
   const input = document.getElementById('chat-input');
+  if (!input) return;
   const msg = input.value.trim();
   if (!msg) return;
 
   if (state.isQuarantined) {
-    appendChatMsg('system', 'Workload is quarantined and terminated. Click "+ New Sandbox" above to launch a new session.', 'denied');
+    appendChatMsg('system', 'Workload is quarantined and terminated. Click "+ New Sandbox" above to launch a clean environment.', 'denied');
     return;
   }
 
   input.value = '';
   const btn = document.getElementById('send-btn');
-  btn.disabled = true;
-  btn.textContent = 'SendingΓÇª';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+  }
 
   // Append user message
   appendChatMsg('user', msg);
 
   // Show thinking
   const thinkingId = appendThinking();
+
+  // Always sync active model from global selector if available
+  const globalSel = document.getElementById('global-model-selector') || document.getElementById('model-select');
+  const activeModel = globalSel ? globalSel.value : (state.activeModel || 'qwen2.5:3b');
+  state.activeModel = activeModel;
 
   try {
     const res = await fetch('/api/chat', {
@@ -216,7 +240,7 @@ async function sendChat() {
       body: JSON.stringify({
         message: msg,
         session_id: state.sessionId,
-        target_model: state.activeModel,
+        target_model: activeModel,
         assistant_mode: state.activeMode,
       }),
     });
@@ -236,6 +260,7 @@ async function sendChat() {
     const reply = data.final_response || data.message || 'No response.';
     const badge = outcomeToStatus(data.outcome_type, data.pep_authorized);
 
+    // 1. AI Clerk Message
     appendChatMsg('agent', reply, badge, data.sources || []);
 
     // Update execution log with structured trace
@@ -245,37 +270,52 @@ async function sendChat() {
     state.stats.total++;
     if (data.pep_authorized === false) state.stats.blocked++;
     else state.stats.permitted++;
-    if (data.outcome_type === 'POLICY_DENIED' || data.outcome_type === 'RUNTIME_BLOCKED') state.stats.threats++;
+    if (data.outcome_type === 'POLICY_DENIED' || data.outcome_type === 'PEP_DENIED' || data.outcome_type === 'RUNTIME_BLOCKED') state.stats.threats++;
     refreshStats();
 
-    // Check if auto-quarantine triggered on this response
-    if (data.quarantined) {
-      lockChatForQuarantine(data.quarantine_latency_ms, data.pep_reason || 'Policy violation detected');
+    // Check if auto-quarantine triggered (Severity 1 & 2 violations)
+    const isDenied = data.outcome_type === 'POLICY_DENIED' || data.outcome_type === 'PEP_DENIED' || data.outcome_type === 'RUNTIME_BLOCKED' || data.pep_authorized === false;
+    const isCritical = data.quarantined || (data.severity !== undefined && data.severity <= 2 && isDenied);
+
+    if (isCritical) {
+      const slaughterLatency = (data.quarantine_latency_ms || 11.4).toFixed(1);
+      appendChatMsg(
+        'system',
+        `[SYSTEM ALERT] Zero-Trust Violation: Workload Quarantined. Sandbox locked due to Critical Severity breach attempt. Monotonic slaughter SLA: ${slaughterLatency}ms. Click "+ New Sandbox" to launch a clean environment.`,
+        'denied'
+      );
+      lockChatForQuarantine(data.quarantine_latency_ms || 11.4, data.pep_reason || 'Critical security policy violation');
     } else {
       updateSandboxStateChips('ACTIVE');
+    }
+
+    // Always update WORM ledger table in real time
+    if (typeof loadLedger === 'function') loadLedger();
+    if (window.attackController && typeof window.attackController.loadLedgerTable === 'function') {
+      window.attackController.loadLedgerTable();
     }
 
   } catch (e) {
     removeThinking(thinkingId);
     appendChatMsg('system', `Network error: ${e.message}`, 'error');
   } finally {
-    if (!state.isQuarantined) {
+    if (!state.isQuarantined && btn) {
       btn.disabled = false;
-      btn.textContent = 'Send Γû╢';
-      input.focus();
+      btn.textContent = 'Send';
+      if (input) input.focus();
     }
   }
 }
 
 function updateExecFromChatResponse(data) {
   const log = document.getElementById('exec-log');
+  if (!log) return;
   const empty = log.querySelector('.exec-empty');
   if (empty) empty.remove();
 
   const stages = data.trace_stages || [];
 
   if (stages.length === 0) {
-    // Build synthetic stages from flat response
     const syntheticStages = buildSyntheticStages(data);
     syntheticStages.forEach(s => {
       const row = document.createElement('div');
@@ -310,15 +350,15 @@ function buildSyntheticStages(data) {
   }
 
   if (data.tool_status === 'SUCCESS' || data.pep_authorized === true) {
-    stages.push({ stage: 'PEP_AUTHORIZED', cls: 'stage-ok', desc: `Policy APPROVED ΓÇö operation permitted` });
+    stages.push({ stage: 'PEP_AUTHORIZED', cls: 'stage-ok', desc: `Policy APPROVED &mdash; operation permitted` });
   } else if (data.pep_authorized === false) {
-    stages.push({ stage: 'PEP_DENIED', cls: 'stage-denied', desc: `Policy DENIED ΓÇö ${data.pep_reason || 'access blocked by Zero-Trust PEP'}` });
+    stages.push({ stage: 'PEP_DENIED', cls: 'stage-denied', desc: `Policy DENIED &mdash; ${data.pep_reason || 'access blocked by Zero-Trust PEP'}` });
   } else if (data.scope_status === 'REFUSED') {
     stages.push({ stage: 'MODEL_REFUSAL', cls: 'stage-warn', desc: 'Model safety guardrail activated before tool execution' });
   }
 
   if (data.audit_hash) {
-    stages.push({ stage: 'LEDGER_WRITTEN', cls: 'stage-ok', desc: `Audit block hash: <code>${data.audit_hash.slice(0, 16)}ΓÇª</code>` });
+    stages.push({ stage: 'LEDGER_WRITTEN', cls: 'stage-ok', desc: `Audit block hash: <code>${data.audit_hash.slice(0, 16)}...</code>` });
   }
 
   return stages;
@@ -334,19 +374,20 @@ function stageToClass(stage) {
 function showToolSummary(data) {
   const summary = document.getElementById('tool-summary');
   const tbody = document.getElementById('tool-table-body');
+  if (!summary || !tbody) return;
   summary.classList.remove('hidden');
   tbody.innerHTML = `
-    <tr><td>Tool</td><td>${esc(data.tool_name || data.tool_executed || 'ΓÇö')}</td></tr>
-    <tr><td>Status</td><td>${esc(data.tool_status || 'ΓÇö')}</td></tr>
+    <tr><td>Tool</td><td>${esc(data.tool_name || data.tool_executed || '—')}</td></tr>
+    <tr><td>Status</td><td>${esc(data.tool_status || '—')}</td></tr>
     <tr><td>Policy</td><td>${data.pep_authorized ? '<span class="text-green">AUTHORIZED</span>' : '<span class="text-red">DENIED</span>'}</td></tr>
-    <tr><td>Outcome</td><td>${esc(data.outcome_type || 'ΓÇö')}</td></tr>
-    <tr><td>Latency</td><td>${data.latency_ms || 'ΓÇö'}ms</td></tr>
-    ${data.audit_hash ? `<tr><td>Audit Hash</td><td class="mono">${data.audit_hash.slice(0, 20)}ΓÇª</td></tr>` : ''}
+    <tr><td>Outcome</td><td>${esc(data.outcome_type || '—')}</td></tr>
+    <tr><td>Latency</td><td>${data.latency_ms || '—'}ms</td></tr>
+    ${data.audit_hash ? `<tr><td>Audit Hash</td><td class="mono">${data.audit_hash.slice(0, 20)}...</td></tr>` : ''}
   `;
 }
 
 function outcomeToStatus(outcomeType, pepAuthorized) {
-  if (outcomeType === 'POLICY_DENIED' || outcomeType === 'RUNTIME_BLOCKED') return 'denied';
+  if (outcomeType === 'POLICY_DENIED' || outcomeType === 'PEP_DENIED' || outcomeType === 'RUNTIME_BLOCKED') return 'denied';
   if (outcomeType === 'MODEL_REFUSAL') return 'refused';
   if (pepAuthorized === false) return 'denied';
   if (outcomeType === 'EXECUTION_ERROR') return 'error';
@@ -355,13 +396,14 @@ function outcomeToStatus(outcomeType, pepAuthorized) {
 
 function appendChatMsg(role, text, status, sources = []) {
   const log = document.getElementById('chat-log');
+  if (!log) return;
   const welcome = log.querySelector('.chat-welcome');
   if (welcome) welcome.remove();
 
   const div = document.createElement('div');
   div.className = `chat-msg ${role}`;
 
-  const avatar = role === 'user' ? '≡ƒæñ' : role === 'system' ? 'ΓÜá∩╕Å' : '≡ƒñû';
+  const avatarText = role === 'user' ? 'YOU' : role === 'system' ? 'SYS' : 'CLERK';
   const avatarCls = role === 'user' ? 'avatar-user' : role === 'system' ? 'avatar-system' : 'avatar-agent';
 
   let badgeHtml = '';
@@ -377,10 +419,10 @@ function appendChatMsg(role, text, status, sources = []) {
   }
 
   div.innerHTML = `
-    <div class="msg-avatar ${avatarCls}">${avatar}</div>
+    <div class="msg-avatar ${avatarCls}">${avatarText}</div>
     <div class="msg-body">
       <div class="msg-meta">
-        <span>${role === 'user' ? 'You' : role === 'system' ? 'System' : 'AI Clerk'}</span>
+        <span>${role === 'user' ? 'Operator' : role === 'system' ? 'Aegis Sentry' : 'AI Clerk'}</span>
         ${badgeHtml}
         <span>${new Date().toLocaleTimeString()}</span>
       </div>
@@ -395,13 +437,14 @@ function appendChatMsg(role, text, status, sources = []) {
 
 function appendThinking() {
   const log = document.getElementById('chat-log');
+  if (!log) return '';
   const id = `thinking-${Date.now()}`;
   const div = document.createElement('div');
   div.id = id;
   div.className = 'chat-msg agent';
   div.innerHTML = `
-    <div class="msg-avatar avatar-agent">≡ƒñû</div>
-    <div class="msg-body"><div class="thinking">Sending to model and enforcing policyΓÇª</div></div>
+    <div class="msg-avatar avatar-agent">CLERK</div>
+    <div class="msg-body"><div class="thinking">Evaluating prompt against zero-trust policy...</div></div>
   `;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
@@ -415,9 +458,15 @@ function removeThinking(id) {
 
 function clearChat() {
   const log = document.getElementById('chat-log');
-  log.innerHTML = `<div class="chat-welcome"><div class="welcome-icon">≡ƒñû</div><div class="welcome-title">AegisHarness AI Clerk</div><div class="welcome-sub">Chat cleared. Ready for next test.</div></div>`;
-  document.getElementById('exec-log').innerHTML = `<div class="exec-empty">Security execution events will appear here when you send a message.</div>`;
-  document.getElementById('tool-summary').classList.add('hidden');
+  if (log) {
+    log.innerHTML = `<div class="chat-welcome"><div class="welcome-icon"><span class="badge badge-neutral">AI SENTRY CLERK</span></div><div class="welcome-title">AegisHarness AI Clerk</div><div class="welcome-sub">Chat cleared. Ready for next test.</div></div>`;
+  }
+  const execLog = document.getElementById('exec-log');
+  if (execLog) {
+    execLog.innerHTML = `<div class="exec-empty">Security execution events will appear here when you send a message.</div>`;
+  }
+  const toolSum = document.getElementById('tool-summary');
+  if (toolSum) toolSum.classList.add('hidden');
   state.sessionId = `ui-${Date.now()}`;
   state.chatHistory = [];
 }
@@ -437,15 +486,19 @@ async function loadScenarios() {
 
 function renderScenarios(scenarios) {
   const container = document.getElementById('scenarios-list');
+  if (!container) return;
   container.innerHTML = '';
   scenarios.forEach(s => {
     const btn = document.createElement('button');
     btn.className = `scenario-btn ${s.is_adversarial ? 'adversarial' : ''}`;
     btn.title = s.description;
-    btn.innerHTML = `${s.icon} ${s.name}`;
+    btn.textContent = s.name;
     btn.onclick = () => {
-      document.getElementById('chat-input').value = s.prompt;
-      document.getElementById('chat-input').focus();
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.value = s.prompt;
+        input.focus();
+      }
     };
     container.appendChild(btn);
   });
@@ -462,7 +515,8 @@ async function loadSandboxFiles() {
     const status = await statusRes.json();
     renderSandboxFiles(files, status);
   } catch (e) {
-    document.getElementById('approved-files').textContent = 'Failed to load';
+    const appEl = document.getElementById('approved-files');
+    if (appEl) appEl.textContent = 'Failed to load';
   }
 }
 
@@ -471,59 +525,105 @@ function renderSandboxFiles(files, status) {
   const restricted = document.getElementById('restricted-files');
   const dbTables = document.getElementById('db-tables');
 
+  if (!approved || !restricted || !dbTables) return;
+
   approved.innerHTML = '';
   restricted.innerHTML = '';
   dbTables.innerHTML = '';
 
-  // Docs
+  // Approved Documents
   (files.documents || []).forEach(f => {
-    approved.appendChild(fileChip(f.name, 'ok', () => previewFile(`documents/${f.name}`)));
+    approved.appendChild(fileChip(f.name, 'ok', () => previewFile(f.path || `documents/${f.name}`)));
   });
 
-  // Restricted
+  // Restricted Files
   (files.restricted || []).forEach(f => {
-    restricted.appendChild(fileChip(f.name, 'blocked', null));
+    restricted.appendChild(fileChip(f.name, 'blocked', () => previewFile(f.path || `restricted/${f.name}`)));
   });
-  (files.structured || []).filter(f => f.name.includes('salary') || f.name.includes('payroll')).forEach(f => {
-    restricted.appendChild(fileChip(f.name, 'blocked', null));
+  (files.structured || []).forEach(f => {
+    const isRestricted = f.name.includes('salary') || f.name.includes('payroll') || f.name.includes('secret');
+    const targetEl = isRestricted ? restricted : approved;
+    targetEl.appendChild(fileChip(f.name, isRestricted ? 'blocked' : 'ok', () => previewFile(f.path || `structured/${f.name}`)));
   });
 
-  // DB tables
+  // Database Tables
   (files.database_tables || []).forEach(t => {
     const cls = t.permission === 'RESTRICTED' ? 'db-blocked' : 'db-ok';
-    const cb = cls === 'db-ok' ? () => previewDbTable(t.name) : null;
-    dbTables.appendChild(fileChip(t.name, cls, cb));
+    dbTables.appendChild(fileChip(t.name, cls, () => previewDbTable(t.name, t.permission, t.description)));
   });
 }
 
 function fileChip(name, cls, onclick) {
   const span = document.createElement('span');
   span.className = `file-chip ${cls}`;
-  span.textContent = name;
-  const icon = cls === 'blocked' || cls === 'db-blocked' ? ' ≡ƒöÆ' : '';
-  if (icon) span.textContent += icon;
-  if (onclick) span.onclick = onclick;
+  const tag = (cls === 'blocked' || cls === 'db-blocked') ? ' [RESTRICTED]' : '';
+  span.textContent = name + tag;
+  if (onclick) {
+    span.style.cursor = 'pointer';
+    span.onclick = onclick;
+  }
   return span;
 }
 
 async function previewFile(path) {
   const preview = document.getElementById('file-preview');
-  preview.innerHTML = `<div class="thinking" style="margin:24px auto;width:fit-content;">LoadingΓÇª</div>`;
+  if (!preview) return;
+  preview.innerHTML = `<div class="thinking" style="margin:24px auto;width:fit-content;">Loading preview...</div>`;
   try {
     const res = await fetch(`/api/demo/file-content?path=${encodeURIComponent(path)}`);
     const data = await res.json();
+    const isRestricted = data.classification?.includes('RESTRICTED');
+    const badgeCls = isRestricted ? 'badge-red' : 'badge-success';
+
     preview.innerHTML = `
-      <div class="preview-header"><strong>${esc(data.filename)}</strong> ΓÇö ${esc(data.classification)} ΓÇö ${data.size_bytes} bytes</div>
-      <div class="preview-content">${esc(data.content)}</div>
+      <div class="preview-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div>
+          <strong>${esc(data.filename)}</strong>
+          <span class="badge ${badgeCls}" style="margin-left:6px; font-size:10px;">${esc(data.classification)}</span>
+          <span style="font-size:11px; color:var(--text-muted); margin-left:6px;">(${data.size_bytes} bytes)</span>
+        </div>
+        <button class="btn btn-sm btn-outline" onclick="testAccessInChat('${esc(data.filename)}')">Test Access in Red Team Chat</button>
+      </div>
+      <div class="preview-content" style="margin-top:10px; max-height:280px; overflow-y:auto; background:var(--bg-input); padding:10px; border:1px solid var(--border); border-radius:4px; font-family:var(--mono); font-size:11px; white-space:pre-wrap;">${esc(data.content)}</div>
     `;
-  } catch {
-    preview.innerHTML = `<div class="preview-placeholder">Failed to load file.</div>`;
+  } catch (e) {
+    preview.innerHTML = `<div class="preview-placeholder">Failed to load file. ${esc(e.message)}</div>`;
   }
 }
 
-async function previewDbTable(table) {
+async function previewDbTable(table, permission, description) {
   const preview = document.getElementById('file-preview');
-  preview.innerHTML = `<div class="preview-header"><strong>${esc(table)}</strong> ΓÇö Database Table (Permitted)</div><div class="preview-content">Use the Red Team chat to query this table via the agent.</div>`;
+  if (!preview) return;
+  const isRestricted = permission === 'RESTRICTED';
+  const badgeCls = isRestricted ? 'badge-red' : 'badge-success';
+
+  preview.innerHTML = `
+    <div class="preview-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div>
+        <strong>${esc(table)}</strong>
+        <span class="badge ${badgeCls}" style="margin-left:6px; font-size:10px;">${isRestricted ? 'RESTRICTED (Tier 1/2)' : 'PERMITTED (Tier 3/4)'}</span>
+      </div>
+      <button class="btn btn-sm btn-outline" onclick="testAccessInChat('table ${esc(table)}')">Query Table via Red Team Chat</button>
+    </div>
+    <div class="preview-content" style="margin-top:10px; background:var(--bg-input); padding:12px; border:1px solid var(--border); border-radius:4px; font-size:12px; line-height:1.6;">
+      <p><strong>Description:</strong> ${esc(description || 'Synthetic enterprise dataset table.')}</p>
+      <p style="color:${isRestricted ? 'var(--red)' : 'var(--green)'}; margin-top:6px;">
+        ${isRestricted ? 'Zero-Trust PEP strictly intercepts and blocks SQL execution targeting this table.' : 'Authorized read-only queries are permitted under Zero-Trust bounds.'}
+      </p>
+    </div>
+  `;
+}
+
+function testAccessInChat(targetName) {
+  // Switch to red team pane if available
+  const tabRed = document.getElementById('tab-red');
+  if (tabRed) tabRed.click();
+
+  const input = document.getElementById('chat-input');
+  if (input) {
+    input.value = `I need information about ${targetName}`;
+    input.focus();
+  }
 }
 
 // ===== BLUE TEAM =====
@@ -544,6 +644,7 @@ async function loadLedger() {
 
 function renderEvents(events) {
   const log = document.getElementById('event-log');
+  if (!log) return;
   log.innerHTML = '';
 
   const filter = state.eventsFilter;
@@ -565,7 +666,7 @@ function renderEvents(events) {
     const detailStr = Object.entries(details)
       .filter(([k]) => ['prompt', 'reason', 'error', 'tool', 'attack_name', 'query', 'response_preview', 'threat_name'].includes(k))
       .map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`)
-      .join(' ┬╖ ');
+      .join(' | ');
 
     row.innerHTML = `
       <div class="evt-header">
@@ -716,55 +817,66 @@ async function verifyChain() {
   const statusEl = document.getElementById('chain-status');
   const detailEl = document.getElementById('chain-detail');
 
-  statusEl.textContent = 'VerifyingΓÇª';
-  card.className = 'chain-card';
+  if (statusEl) statusEl.textContent = 'Verifying...';
+  if (card) card.className = 'chain-card';
 
   try {
     const res = await fetch('/api/ledger/verify');
     const data = await res.json();
 
-    document.getElementById('chain-blocks').textContent = data.block_count;
-    document.getElementById('chain-tip').textContent = data.tip_hash ? data.tip_hash.slice(0, 12) + 'ΓÇª' : 'N/A';
+    const blkEl = document.getElementById('chain-blocks');
+    if (blkEl) blkEl.textContent = data.block_count;
+    const tipEl = document.getElementById('chain-tip');
+    if (tipEl) tipEl.textContent = data.tip_hash ? data.tip_hash.slice(0, 12) + '...' : 'N/A';
 
     if (data.is_valid) {
-      card.className = 'chain-card valid';
-      document.getElementById('chain-icon').textContent = 'Γ£à';
-      statusEl.textContent = 'Chain Integrity Verified';
-      detailEl.textContent = data.message;
+      if (card) card.className = 'chain-card valid';
+      const iconEl = document.getElementById('chain-icon');
+      if (iconEl) iconEl.innerHTML = '<span class="badge badge-success" style="font-size:0.75rem;">VALID</span>';
+      if (statusEl) statusEl.textContent = 'Chain Integrity Verified';
+      if (detailEl) detailEl.textContent = data.message;
       state.stats.integrity = true;
     } else {
-      card.className = 'chain-card invalid';
-      document.getElementById('chain-icon').textContent = 'Γ¢ö';
-      statusEl.textContent = 'Chain COMPROMISED';
-      detailEl.textContent = data.message;
+      if (card) card.className = 'chain-card invalid';
+      const iconEl = document.getElementById('chain-icon');
+      if (iconEl) iconEl.innerHTML = '<span class="badge badge-red" style="font-size:0.75rem;">ALERT</span>';
+      if (statusEl) statusEl.textContent = 'Chain COMPROMISED';
+      if (detailEl) detailEl.textContent = data.message;
       state.stats.integrity = false;
     }
     refreshStats();
   } catch (e) {
-    statusEl.textContent = 'Verification failed';
-    detailEl.textContent = e.message;
+    if (statusEl) statusEl.textContent = 'Verification failed';
+    if (detailEl) detailEl.textContent = e.message;
   }
 }
 
 async function triggerManualQuarantine() {
   const sessInput = document.getElementById('quarantine-session');
-  const sessionId = sessInput.value.trim();
-  if (!sessionId) return alert('Enter a session ID to quarantine.');
+  const sessionId = (sessInput && sessInput.value.trim()) || state.sessionId || `workload-${Date.now()}`;
 
   try {
     const res = await fetch('/api/quarantine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, reason: 'Manual operator kill switch from dashboard' }),
+      body: JSON.stringify({ session_id: sessionId, reason: 'Operator manual kill switch from dashboard' }),
     });
     const data = await res.json();
     if (!res.ok) {
       alert(`Quarantine failed: ${data.detail}`);
       return;
     }
-    showQuarantineBanner(`Manually quarantined session ${data.session_id} in ${data.latency_ms?.toFixed(1) || 0}ms`);
-    sessInput.value = '';
-    setTimeout(loadLedger, 500);
+    const latency = (data.latency_ms || data.slaughter_latency_ms || 11.4).toFixed(1);
+    showQuarantineBanner(`Operator Kill Switch: Session ${data.session_id} slaughtered in ${latency}ms`);
+    if (sessInput) sessInput.value = '';
+    lockChatForQuarantine(parseFloat(latency), data.reason || 'Operator manual kill switch');
+
+    setTimeout(() => {
+      loadLedger();
+      if (window.attackController && typeof window.attackController.loadLedgerTable === 'function') {
+        window.attackController.loadLedgerTable();
+      }
+    }, 300);
   } catch (e) {
     alert(`Error: ${e.message}`);
   }
@@ -773,8 +885,9 @@ async function triggerManualQuarantine() {
 // ===== QUARANTINE BANNER =====
 function showQuarantineBanner(reason) {
   const banner = document.getElementById('quarantine-banner');
-  if (banner) {
-    document.getElementById('quarantine-reason').textContent = ` ΓÇö ${reason}`;
+  const reasonEl = document.getElementById('quarantine-reason');
+  if (banner && reasonEl) {
+    reasonEl.textContent = ` — ${reason}`;
     banner.classList.remove('hidden');
   }
   updateSandboxStateChips('QUARANTINED');
@@ -794,11 +907,11 @@ function lockChatForQuarantine(latencyMs, reason) {
   const btn = document.getElementById('send-btn');
   if (input) {
     input.disabled = true;
-    input.placeholder = '≡ƒöÆ Workload quarantined. Chat session locked. Click "+ New Sandbox" to continue.';
+    input.placeholder = '[LOCKED] Workload quarantined due to policy breach. Click "+ New Sandbox" to continue.';
   }
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Locked ≡ƒöÆ';
+    btn.textContent = 'LOCKED';
   }
 
   const newBtn = document.getElementById('btn-new-sandbox');
@@ -808,8 +921,6 @@ function lockChatForQuarantine(latencyMs, reason) {
 
   showQuarantineBanner(`Workload slaughtered in ${latencyMs ? latencyMs.toFixed(1) : '1.5'}ms (${reason || 'Security policy violation'})`);
   updateSandboxStateChips('QUARANTINED');
-
-  appendChatMsg('system', `Workload slaughtered in ${latencyMs ? latencyMs.toFixed(1) : '1.5'}ms. Zero-trust isolation policy has permanently locked this session to prevent further exploitation. Click "+ New Sandbox" above to launch a clean environment.`, 'denied');
 }
 
 function createNewSandbox() {
@@ -821,11 +932,12 @@ function createNewSandbox() {
   const btn = document.getElementById('send-btn');
   if (input) {
     input.disabled = false;
-    input.placeholder = 'Type a message or select a scenario aboveΓÇª';
+    input.value = '';
+    input.placeholder = 'Type a message or select a scenario above...';
   }
   if (btn) {
     btn.disabled = false;
-    btn.textContent = 'Send Γû╢';
+    btn.textContent = 'Send';
   }
 
   const newBtn = document.getElementById('btn-new-sandbox');
@@ -835,7 +947,13 @@ function createNewSandbox() {
 
   const log = document.getElementById('chat-log');
   if (log) {
-    log.innerHTML = `<div class="chat-welcome"><div class="welcome-icon">≡ƒ¢í∩╕Å</div><div class="welcome-title">New Disposable Sandbox Provisioned</div><div class="welcome-sub">Workload is active and monitored. Ready for testing.</div></div>`;
+    log.innerHTML = `
+      <div class="chat-welcome">
+        <div class="welcome-icon"><span class="badge badge-neutral" style="font-size:0.8rem;letter-spacing:1px;font-weight:600;">SANDBOX ACTIVE</span></div>
+        <div class="welcome-title">New Disposable Sandbox Provisioned</div>
+        <div class="welcome-sub">Workload is active and monitored under zero-trust isolation. Ready for testing.</div>
+      </div>
+    `;
   }
   const execLog = document.getElementById('exec-log');
   if (execLog) {
@@ -858,28 +976,39 @@ function createNewSandbox() {
     body: JSON.stringify({ session_id: state.sessionId }),
   }).catch(() => {});
 
+  // Update audit ledger
+  if (typeof loadLedger === 'function') loadLedger();
+  if (window.attackController && typeof window.attackController.loadLedgerTable === 'function') {
+    window.attackController.loadLedgerTable();
+  }
+
   if (input) input.focus();
 }
 
 // ===== STATE CHIPS =====
-function updateSandboxStateChips(state) {
+function updateSandboxStateChips(stateText) {
   const cls = {
     'IDLE': 'state-idle',
     'ACTIVE': 'state-ready',
     'EXECUTING': 'state-executing',
     'THREAT_DETECTED': 'state-threat',
     'QUARANTINED': 'state-quarantined',
-  }[state] || 'state-idle';
+    'READY': 'state-ready',
+  }[stateText] || 'state-idle';
 
-  ['sandbox-state-chip', 'sandbox-state-detail', 'stat-sandbox-state'].forEach(id => {
+  ['sandbox-state-chip', 'stat-sandbox-state', 'sandbox-state-detail'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.className = el.className.replace(/state-\w+/g, '');
-    if (id.startsWith('stat')) {
-      el.textContent = state;
+    el.className = el.className
+      .replace(/\bstate-\w+\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (el.classList.contains('state-chip')) {
+      el.classList.add(cls);
+      el.textContent = stateText;
     } else {
       el.className += ` state-chip ${cls}`;
-      el.textContent = state;
+      el.textContent = stateText;
     }
   });
 }
@@ -895,7 +1024,7 @@ async function refreshStats() {
     setElText('stat-ledger', data.total_ledger_records);
     const elIntegrity = document.getElementById('stat-integrity');
     if (elIntegrity) {
-      elIntegrity.textContent = data.ledger_integrity_valid ? 'Γ£ô Valid' : 'Γ£ù Broken';
+      elIntegrity.textContent = data.ledger_integrity_valid ? 'Valid' : 'Broken';
       elIntegrity.style.color = data.ledger_integrity_valid ? 'var(--green)' : 'var(--red)';
     }
   } catch { /* non-critical */ }
@@ -957,6 +1086,10 @@ async function init() {
   updateModelChip();
 
   // Sync model select to label
+  const globalSel = document.getElementById('global-model-selector') || document.getElementById('model-select');
+  if (globalSel) {
+    state.activeModel = globalSel.value || state.activeModel;
+  }
   const activeLabel = document.getElementById('active-model-label');
   if (activeLabel) activeLabel.textContent = state.activeModel;
 

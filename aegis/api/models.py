@@ -203,6 +203,9 @@ class ChatResponse(BaseModel):
     audit_block_index: Optional[int] = None
     latency_ms: float = 0.0
     trace_stages: List[Dict[str, Any]] = []
+    quarantined: bool = False
+    severity: int = 4
+    quarantine_latency_ms: float = 0.0
 
 
 class JailbreakExecutionRequest(BaseModel):
