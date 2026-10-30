@@ -604,12 +604,16 @@ class AttackController {
             this.loadCompanyApiLogs();
           } else if (btn.dataset.tab === "pane-target") {
             this.fetchAgentStatus();
+            if (typeof loadSandboxFiles === 'function') loadSandboxFiles();
           } else if (btn.dataset.tab === "pane-blue") {
             this.loadBlueEvents();
+            if (typeof loadLedger === 'function') loadLedger();
+            if (typeof refreshStats === 'function') refreshStats();
           } else if (btn.dataset.tab === "pane-ledger") {
             this.loadLedgerTable();
           } else if (btn.dataset.tab === "pane-red") {
             this.fetchAgentStatus();
+            if (typeof refreshStats === 'function') refreshStats();
           }
         } catch (err) {
           console.warn("Tab lazy load error:", err);
