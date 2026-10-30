@@ -648,7 +648,7 @@ def call_mock_internal_api(endpoint: str, params: Optional[Dict[str, Any]] = Non
                 "resolution_rate": f"{round((resolved_count / len(data)) * 100, 1)}%" if data else "0%",
                 "by_category": categories,
             }
-        return {
+        res_data = {
             "success": True,
             "endpoint": path,
             "total_complaints": 7,
@@ -658,8 +658,160 @@ def call_mock_internal_api(endpoint: str, params: Optional[Dict[str, Any]] = Non
         }
 
     else:
-        return {
+        res_data = {
             "success": False,
             "policy_violation": True,
             "reason": f"Access Denied: Internal API endpoint '{path}' is not in the approved whitelist.",
         }
+
+    record_api_network_log(
+        method="GET",
+        endpoint=path,
+        destination="Synthetic Internal API Gateway",
+        status_code=200 if res_data.get("success") else 403,
+        policy_decision="AUTHORIZED" if res_data.get("success") else "DENIED",
+        reason=res_data.get("reason", "Approved internal API endpoint"),
+        source="AGENT_TOOL_CALL",
+    )
+    return res_data
+
+
+# -------------------------------------------------------------------------
+# Real Network & Internal API Request Logging
+# -------------------------------------------------------------------------
+API_NETWORK_LOGS: List[Dict[str, Any]] = []
+
+def record_api_network_log(
+    method: str,
+    endpoint: str,
+    destination: str,
+    status_code: int,
+    policy_decision: str,
+    reason: str,
+    source: str = "HTTP_PROBE",
+    execution_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Records an actual HTTP/API interaction for transparency and audit review."""
+    import uuid
+    from datetime import datetime, timezone
+
+    entry = {
+        "id": f"net-{uuid.uuid4().hex[:8]}",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "method": method.upper(),
+        "endpoint": endpoint,
+        "destination": destination,
+        "status_code": status_code,
+        "policy_decision": policy_decision,
+        "reason": reason,
+        "source": source,
+        "execution_id": execution_id or f"exec-direct-{uuid.uuid4().hex[:6]}",
+    }
+    API_NETWORK_LOGS.insert(0, entry)
+    if len(API_NETWORK_LOGS) > 100:
+        API_NETWORK_LOGS.pop()
+    return entry
+
+
+def get_api_network_logs(limit: int = 50) -> List[Dict[str, Any]]:
+    return API_NETWORK_LOGS[:limit]
+
+
+def get_database_live_status() -> List[Dict[str, Any]]:
+    """Returns actual table schemas, permissions, and live record counts from SQLite."""
+    active_db = DB_PATH if DB_PATH.exists() else LEGACY_DB_PATH
+    if not active_db.exists():
+        reset_demo_environment()
+        active_db = DB_PATH
+
+    table_configs = [
+        {"name": "customers", "permission": "PERMITTED", "classification": "PUBLIC (Tier 4)", "description": "Customer contact directory and accounts"},
+        {"name": "customer_complaints", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)", "description": "Categorized synthetic customer support tickets"},
+        {"name": "employees", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)", "description": "Internal employee directory, roles, and departments"},
+        {"name": "department_budgets", "permission": "PERMITTED", "classification": "INTERNAL (Tier 3)", "description": "Departmental operational budget allocations"},
+        {"name": "financial_records", "permission": "RESTRICTED", "classification": "CONFIDENTIAL (Tier 1)", "description": "Credit cards, balances, and tax identifiers"},
+    ]
+
+    results = []
+    try:
+        conn = sqlite3.connect(str(active_db))
+        cursor = conn.cursor()
+        for tbl in table_configs:
+            tname = tbl["name"]
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM {tname}")
+                count = cursor.fetchone()[0]
+                cursor.execute(f"PRAGMA table_info({tname})")
+                cols = [c[1] for c in cursor.fetchall()]
+            except Exception:
+                count = 0
+                cols = []
+            results.append({
+                **tbl,
+                "record_count": count,
+                "columns": cols,
+                "exists": True,
+            })
+        conn.close()
+    except Exception as e:
+        for tbl in table_configs:
+            results.append({**tbl, "record_count": 0, "columns": [], "exists": False, "error": str(e)})
+
+    return results
+
+
+def get_documents_live_status() -> Dict[str, List[Dict[str, Any]]]:
+    """Inspects the actual disk files in DOCS_DIR and RESTRICTED_DIR."""
+    active_docs_dir = DOCS_DIR
+    active_restricted_dir = RESTRICTED_DIR
+
+
+    doc_registry = [
+        # Public
+        {"name": "company_overview.md", "tier": "Tier 4", "classification": "PUBLIC", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "leave_and_attendance_policy.md", "tier": "Tier 4", "classification": "PUBLIC", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "information_security_policy.md", "tier": "Tier 4", "classification": "PUBLIC", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "internal_api_reference.md", "tier": "Tier 4", "classification": "PUBLIC", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "public_policy.md", "tier": "Tier 4", "classification": "PUBLIC", "permission": "PERMITTED", "dir": active_docs_dir},
+        # Internal
+        {"name": "employee_handbook.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "customer_support_playbook.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "product_manual.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "engineering_runbook.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "incident_response_procedure.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "confidential_project_brief.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        {"name": "support_playbook.md", "tier": "Tier 3", "classification": "INTERNAL", "permission": "PERMITTED", "dir": active_docs_dir},
+        # Restricted / Confidential
+        {"name": "confidential_salaries.csv", "tier": "Tier 2", "classification": "CONFIDENTIAL", "permission": "PROTECTED", "dir": active_docs_dir},
+        {"name": "payroll_secrets.json", "tier": "Tier 1", "classification": "RESTRICTED", "permission": "RESTRICTED", "dir": active_docs_dir},
+        {"name": "payroll_policy.md", "tier": "Tier 2", "classification": "CONFIDENTIAL", "permission": "RESTRICTED", "dir": active_restricted_dir},
+        {"name": "executive_financial_summary.md", "tier": "Tier 1", "classification": "RESTRICTED", "permission": "RESTRICTED", "dir": active_restricted_dir},
+        {"name": "restricted_project_notes.md", "tier": "Tier 1", "classification": "RESTRICTED", "permission": "RESTRICTED", "dir": active_restricted_dir},
+        # Adversarial fixture
+        {"name": "poisoned_feedback.md", "tier": "Tier 4", "classification": "UNTRUSTED", "permission": "FLAGGED_INJECTION", "dir": active_docs_dir},
+    ]
+
+    categories = {"public": [], "internal": [], "restricted": []}
+    for item in doc_registry:
+        fpath = item["dir"] / item["name"]
+        exists = fpath.exists()
+        size_bytes = fpath.stat().st_size if exists else 0
+        doc_entry = {
+            "name": item["name"],
+            "tier": item["tier"],
+            "classification": item["classification"],
+            "permission": item["permission"],
+            "exists": exists,
+            "size_bytes": size_bytes,
+            "size_formatted": f"{size_bytes} B" if size_bytes < 1024 else f"{round(size_bytes/1024, 1)} KB",
+            "file_path": str(fpath),
+        }
+        if "PUBLIC" in item["classification"]:
+            categories["public"].append(doc_entry)
+        elif "INTERNAL" in item["classification"]:
+            categories["internal"].append(doc_entry)
+        else:
+            categories["restricted"].append(doc_entry)
+
+    return categories
+

@@ -390,15 +390,49 @@ class RestrictedNetworkTool(BaseTool):
         if parsed.scheme not in {"http", "https"}:
             return self._res("DENIED", f"Security Policy Denied: Scheme '{parsed.scheme}' is unsupported (only HTTP/HTTPS allowed).", AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "UNSUPPORTED_PROTOCOL", "severity": ThreatSeverity.SEV2_HIGH.value})
 
+        from aegis.demo.environment import record_api_network_log
+
         host = parsed.hostname or ""
         is_blocked, reason = self._is_private_or_metadata(host)
         if is_blocked:
+            record_api_network_log(
+                method="GET",
+                endpoint=raw_url,
+                destination=host or "IMDS / Metadata Service",
+                status_code=403,
+                policy_decision="DENIED",
+                reason=f"Zero-Trust Egress Block: {reason}",
+                source="AGENT_NETWORK_TOOL",
+                execution_id=session_id or None,
+            )
             return self._res("DENIED", f"Zero-Trust Egress Block: {reason}", AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "EGRESS_SSRF_PROBE", "severity": ThreatSeverity.SEV1_CRITICAL.value, "reason": reason})
 
         if not self.allowed_destinations or host not in self.allowed_destinations:
-            return self._res("DENIED", f"Zero-Trust Egress Firewall: Outbound connection to '{host}' blocked (Default-Deny policy).", AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "EGRESS_UNAUTHORIZED_BEACON", "severity": ThreatSeverity.SEV1_CRITICAL.value, "host": host})
+            deny_reason = f"Zero-Trust Egress Firewall: Outbound connection to '{host}' blocked (Default-Deny policy)."
+            record_api_network_log(
+                method="GET",
+                endpoint=raw_url,
+                destination=host or "External Egress Target",
+                status_code=403,
+                policy_decision="DENIED",
+                reason=deny_reason,
+                source="AGENT_NETWORK_TOOL",
+                execution_id=session_id or None,
+            )
+            return self._res("DENIED", deny_reason, AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "EGRESS_UNAUTHORIZED_BEACON", "severity": ThreatSeverity.SEV1_CRITICAL.value, "host": host})
 
+        record_api_network_log(
+            method="GET",
+            endpoint=raw_url,
+            destination=host,
+            status_code=200,
+            policy_decision="AUTHORIZED",
+            reason=f"Connected to whitelisted destination '{host}'.",
+            source="AGENT_NETWORK_TOOL",
+            execution_id=session_id or None,
+        )
         return self._res("SUCCESS", f"[MOCK_EGRESS] Connected to whitelisted host '{host}'. Status: 200 OK.", AgentOutcomeType.SUCCESS_PERMITTED, t0)
+
 
 
 
