@@ -916,7 +916,12 @@ class AttackController {
       btnGeneral.addEventListener("click", () => this.setAssistantMode("general"));
     }
 
-    const btnNewChat = document.getElementById("btn-new-chat");
+    const modeSelect = document.getElementById("chat-assistant-mode-select");
+    if (modeSelect) {
+      modeSelect.addEventListener("change", (e) => this.setAssistantMode(e.target.value));
+    }
+
+    const btnNewChat = document.getElementById("btn-new-chat") || document.getElementById("btn-chat-reset");
     if (btnNewChat) {
       btnNewChat.addEventListener("click", () => this.resetChat());
     }
@@ -932,7 +937,7 @@ class AttackController {
       });
     }
 
-    const btnSendChat = document.getElementById("btn-send-chat");
+    const btnSendChat = document.getElementById("btn-send-chat") || document.getElementById("btn-chat-send");
     if (btnSendChat) {
       btnSendChat.addEventListener("click", () => this.sendChatMessage());
     }
@@ -964,6 +969,11 @@ class AttackController {
     const genBtn = document.getElementById("btn-mode-general");
     const modeBadge = document.getElementById("tech-active-mode");
     const chatBadge = document.getElementById("chat-mode-badge");
+    const modeSelect = document.getElementById("chat-assistant-mode-select");
+
+    if (modeSelect && modeSelect.value !== mode) {
+      modeSelect.value = mode;
+    }
 
     if (compBtn && genBtn) {
       if (mode === "company") {
@@ -985,7 +995,7 @@ class AttackController {
 
   async sendChatMessage() {
     const input = document.getElementById("chat-input");
-    const sendBtn = document.getElementById("btn-send-chat");
+    const sendBtn = document.getElementById("btn-send-chat") || document.getElementById("btn-chat-send");
     const prompt = input ? input.value.trim() : "";
     if (!prompt) return;
 
