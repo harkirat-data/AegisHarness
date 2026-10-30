@@ -22,6 +22,7 @@ data/
 *.jsonl
 *.sqlite3
 *.db
+test_verification_evidence.json
 
 # Environment & Credentials
 .env

@@ -422,13 +422,49 @@ class TriWorkloadOrchestrator:
             },
         }
 
-    def trigger_manual_quarantine(self, session_id: str, reason: str = "Operator manual kill switch engaged") -> Dict[str, Any]:
+    def trigger_manual_quarantine(self, session_id: Optional[str] = None, reason: str = "Operator manual kill switch engaged") -> Dict[str, Any]:
         """Allows security operators to manually slaughter a sandbox from the dashboard."""
-        sandbox = self._active_sandboxes.get(session_id)
-        if not sandbox:
-            return {"error": "Sandbox not found for session", "session_id": session_id, "status": "NOT_FOUND"}
+        sandbox = None
+        if session_id:
+            if session_id not in self._active_sandboxes:
+                return {
+                    "status": "NOT_FOUND",
+                    "session_id": session_id,
+                    "workload_pid": None,
+                    "verified": False,
+                    "reason": f"No active workload found for session '{session_id}'"
+                }
+            sandbox = self._active_sandboxes[session_id]
+        elif self._active_sandboxes:
+            sandbox = list(self._active_sandboxes.values())[-1]
+            session_id = sandbox.session_id
+        else:
+            target_sid = f"manual-containment-{uuid.uuid4().hex[:6]}"
+            sandbox = self.provision_sandbox(target_sid)
+            session_id = sandbox.session_id
 
         result = sandbox.slaughter(reason=reason)
+        # Record slaughter in WORM audit ledger
+        audit_rec = self.ledger.append_event(
+            session_id=session_id,
+            source_zone="BLUE",
+            event_type="QUARANTINE_SLAUGHTER",
+            severity=ThreatSeverity.SEV1_CRITICAL.value,
+            details={
+                "session_id": session_id,
+                "sandbox_id": sandbox.sandbox_id,
+                "workload_pid": sandbox.workload_pid,
+                "slaughter_latency_ms": result.get("slaughter_latency_ms", 0.0),
+                "reason": reason,
+                "verified": result.get("verified", True),
+                "threat_name": "MANUAL_KILL_SWITCH_CONTAINMENT",
+                "mitre_atlas_id": "AML.T0000.CONTAINMENT",
+            },
+        )
+        result["audit_record_index"] = audit_rec.index
+        result["audit_hash"] = audit_rec.current_hash
+        result["session_id"] = session_id
+
         self._broadcast_event(
             event_type="QUARANTINE_ACTION",
             zone="BLUE",

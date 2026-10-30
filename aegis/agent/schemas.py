@@ -9,14 +9,36 @@ from pydantic import BaseModel, Field
 
 
 class AgentOutcomeType(str, Enum):
-    MODEL_REFUSAL = "MODEL_REFUSAL"          # Model safety guardrail refused the adversarial request
-    POLICY_DENIED = "POLICY_DENIED"          # Application security policy blocked proposed action
-    RUNTIME_BLOCKED = "RUNTIME_BLOCKED"      # Tool executor / boundary prevented prohibited execution
-    SUCCESS_PERMITTED = "SUCCESS_PERMITTED"  # Benign action executed within allowed policy
-    SUCCESS_PROHIBITED = "SUCCESS_PROHIBITED"# Prohibited action succeeded (Security breach!)
-    INCONCLUSIVE = "INCONCLUSIVE"            # Available evidence is insufficient to establish the outcome
-    EXECUTION_ERROR = "EXECUTION_ERROR"      # Tool failed or timed out
-    MALFORMED_REQUEST = "MALFORMED_REQUEST"  # Model output invalid schema
+    # Core Evaluation Classifications
+    MODEL_REFUSED = "MODEL_REFUSED"
+    MODEL_DIRECT_RESPONSE = "MODEL_DIRECT_RESPONSE"
+    TOOL_PROPOSED = "TOOL_PROPOSED"
+    UNAUTHORIZED_TOOL_PROPOSAL = "UNAUTHORIZED_TOOL_PROPOSAL"
+    PEP_AUTHORIZED = "PEP_AUTHORIZED"
+    PEP_DENIED = "POLICY_DENIED"
+    RESOURCE_ACCESS_PERMITTED = "RESOURCE_ACCESS_PERMITTED"
+    RESOURCE_ACCESS_DENIED = "RESOURCE_ACCESS_DENIED"
+    RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
+    RUNTIME_BLOCKED = "RUNTIME_BLOCKED"
+    RUNTIME_QUARANTINED = "RUNTIME_QUARANTINED"
+    CONFIRMED_BREACH = "CONFIRMED_BREACH"
+    NOT_ATTEMPTED = "NOT_ATTEMPTED"
+    EXECUTION_ERROR = "EXECUTION_ERROR"
+
+    # Compatibility & Operational Classifications
+    MODEL_REFUSAL = "MODEL_REFUSED"                  # Alias for MODEL_REFUSED
+    DIRECT_RESPONSE = "MODEL_DIRECT_RESPONSE"        # Alias for MODEL_DIRECT_RESPONSE
+    TOOL_EXECUTED = "TOOL_EXECUTED"                  # Proposed tool was dispatched to execution
+    POLICY_DENIED = "POLICY_DENIED"                  # Policy Enforcement Point denied request
+    ACCESS_PERMITTED = "RESOURCE_ACCESS_PERMITTED"  # Alias for RESOURCE_ACCESS_PERMITTED
+    ACCESS_BLOCKED = "RESOURCE_ACCESS_DENIED"        # Alias for RESOURCE_ACCESS_DENIED
+    DATA_EXFILTRATION_CONFIRMED = "CONFIRMED_BREACH" # Actual exfiltration breach
+    QUARANTINE_VERIFIED = "RUNTIME_QUARANTINED"      # Alias for RUNTIME_QUARANTINED
+    AUDIT_COMMITTED = "AUDIT_COMMITTED"              # Cryptographic SHA-256 ledger block committed
+    SUCCESS_PERMITTED = "SUCCESS_PERMITTED"          # Benign action executed within allowed policy
+    SUCCESS_PROHIBITED = "CONFIRMED_BREACH"          # Prohibited action succeeded (Security breach!)
+    INCONCLUSIVE = "INCONCLUSIVE"                    # Available evidence is insufficient to establish outcome
+    MALFORMED_REQUEST = "MALFORMED_REQUEST"          # Model output invalid schema
 
 
 class ToolCallRequest(BaseModel):
@@ -64,3 +86,7 @@ class AgentExecutionReport(BaseModel):
     audit_persistence: str = "NOT EXECUTED"
     audit_block_index: Optional[int] = None
     runtime_isolation_claim: str = "NONE_VERIFIED"
+    model_layer_jailbreak: str = "FAILED"
+    pep_defense: str = "NOT_APPLICABLE"
+    confirmed_breach: str = "NO"
+

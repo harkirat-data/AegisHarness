@@ -17,7 +17,7 @@ class AttackLaunchRequest(BaseModel):
 
 
 class ManualQuarantineRequest(BaseModel):
-    session_id: str
+    session_id: Optional[str] = None
     reason: Optional[str] = "Manual operator kill switch triggered from dashboard"
 
 
@@ -191,6 +191,9 @@ class ChatResponse(BaseModel):
     runtime_containment: str = "NOT EXECUTED"
     audit_persistence: str = "NOT EXECUTED"
     runtime_isolation_claim: str = "NONE_VERIFIED"
+    model_layer_jailbreak: str = "FAILED"
+    pep_defense: str = "NOT_APPLICABLE"
+    confirmed_breach: str = "NO"
     policy_decision: Optional[str] = None
     pep_authorized: Optional[bool] = None
     pep_reason: str = ""
@@ -200,6 +203,49 @@ class ChatResponse(BaseModel):
     audit_block_index: Optional[int] = None
     latency_ms: float = 0.0
     trace_stages: List[Dict[str, Any]] = []
+
+
+class JailbreakExecutionRequest(BaseModel):
+    payload_id: str = Field(..., description="Unique ID of jailbreak payload to execute")
+    target_model: Optional[str] = Field(None, description="Optional model override")
+    session_id: Optional[str] = Field(None, description="Shared session ID for multi-turn execution")
+
+
+class JailbreakTurnResult(BaseModel):
+    turn_index: int
+    prompt: str
+    raw_response: str
+    tool_proposal: Optional[Dict[str, Any]] = None
+    model_decision: str
+    pep_decision: str
+    resource_access_outcome: str
+    runtime_containment: str
+    outcome_type: str
+    audit_hash: Optional[str] = None
+    execution_id: str = ""
+    latency_ms: float = 0.0
+
+
+class JailbreakExecutionResponse(BaseModel):
+    execution_id: str = ""
+    payload_id: str
+    payload_name: str
+    category: str
+    target_resource: str
+    target_tool: str
+    attack_objective: str
+    session_id: str
+    target_model: str
+    total_turns: int
+    model_layer_jailbreak: str  # "SUCCESS", "FAILED"
+    pep_defense: str            # "SUCCESS", "FAILED", "NOT_APPLICABLE"
+    confirmed_breach: str       # "YES", "NO"
+    final_outcome: str
+    execution_status: str       # "COMPLETED", "UNSUPPORTED", "FAILED"
+    turns: List[JailbreakTurnResult]
+    audit_record_index: Optional[int] = None
+    audit_hash: Optional[str] = None
+
 
 
 class DirectPEPTestRequest(BaseModel):
@@ -239,4 +285,68 @@ class DirectPEPTestResponse(BaseModel):
     isolation_claim: str = "APPLICATION_LEVEL_PEP"
     latency_ms: float = 0.0
     trace_stages: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class TechniqueRunRequest(BaseModel):
+    technique_id: str = Field(..., description="ID of adversarial technique e.g. tech-01-roleplay or 'all'")
+    target_model: Optional[str] = Field(None, description="Target model name")
+    assistant_mode: str = Field("company", description="'company' or 'general'")
+    session_id: Optional[str] = Field(None, description="Optional session ID")
+    execution_id: Optional[str] = Field(None, description="Optional execution ID")
+
+
+class TechniqueTurnResult(BaseModel):
+    turn_number: int
+    user_prompt: str
+    model_response_raw: str
+    model_decision: str
+    tool_proposal: Optional[Dict[str, Any]] = None
+    pep_decision: str
+    resource_access_outcome: str
+    runtime_containment: str
+    outcome_type: str
+    execution_id: str
+    latency_ms: float = 0.0
+
+
+class TechniqueEvaluationResponse(BaseModel):
+    technique_id: str
+    number: int
+    name: str
+    category: str
+    description: str
+    is_multiturn: bool = False
+    turns_executed: List[TechniqueTurnResult] = Field(default_factory=list)
+    final_verdict: str
+    final_outcome: str
+    target_model: str
+    execution_id: str
+    session_id: str
+    total_latency_ms: float = 0.0
+    audit_hash: Optional[str] = None
+    audit_block_index: Optional[int] = None
+    isolation_claim: str = "APPLICATION_LEVEL_PEP"
+    mitre_atlas_tag: str = "AML.T0054"
+
+
+class SimulatedBreachRequest(BaseModel):
+    operator_id: str = Field("operator-secops", description="Authenticated operator initiating containment drill")
+    drill_notes: str = Field("Routine Zero-Trust Breach & Containment SLA Drill", description="Operator notes")
+
+
+class SimulatedBreachResponse(BaseModel):
+    drill_id: str
+    status: str = "SIMULATED_BREACH"
+    label: str = "SIMULATED BREACH (OPERATOR DRILL)"
+    target_fixture: str = "synthetic_breach_canary.dat"
+    is_real_breach: bool = False
+    is_real_jailbreak: bool = False
+    is_pep_bypass: bool = False
+    quarantined: bool = True
+    slaughter_latency_ms: float = 0.0
+    audit_record_index: int
+    audit_hash: str
+    message: str
+    canary_data_snippet: str
+
 

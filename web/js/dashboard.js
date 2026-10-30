@@ -94,6 +94,14 @@ class AegisDashboard {
   handleIncomingTelemetry(msg) {
     const { type, zone, data } = msg;
 
+    if (window.attackController && window.attackController.animateArchitectureStage) {
+      if (type === "ATTACK_RECEIVED") window.attackController.animateArchitectureStage("INGRESS");
+      else if (type === "AGENT_INFERENCE_STARTING") window.attackController.animateArchitectureStage("INFERENCE");
+      else if (type === "AGENT_RESPONSE_RECEIVED" && data && data.proposed_tool) window.attackController.animateArchitectureStage("PARSER");
+      else if (type === "SYSCALL_TRAPPED") window.attackController.animateArchitectureStage("PEP", "DENIED");
+      else if (type === "QUARANTINE_ACTION") window.attackController.animateArchitectureStage("CONTAINMENT");
+    }
+
     switch (type) {
       case "ATTACK_RECEIVED":
         this.onAttackReceived(data);

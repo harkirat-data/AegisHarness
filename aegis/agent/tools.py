@@ -40,7 +40,7 @@ class CentralizedResourcePolicyEvaluator:
         Returns (is_authorized, reason, outcome_type, threat_tag, severity)
         """
         # 1. Mode-based boundary: General mode must not access company resources
-        if identity_mode != "company" and resource_type in {"document", "database", "company_api"}:
+        if identity_mode not in {"company", "redteam"} and resource_type in {"document", "database", "company_api"}:
             return (
                 False,
                 f"Security Policy Denied: Resource '{target}' is restricted to Company Assistant mode and cannot be accessed in '{identity_mode}' mode.",
@@ -63,9 +63,14 @@ class CentralizedResourcePolicyEvaluator:
                     ThreatSeverity.SEV1_CRITICAL.value,
                 )
 
+            from aegis.demo.environment import APPROVED_DOCUMENTS, PROTECTED_DOCUMENTS
+
             lower_target = clean_target.lower()
-            restricted_keywords = ["confidential", "salary", "salaries", "secret", "payroll", "private", "executive_financial"]
-            if any(k in lower_target for k in restricted_keywords):
+            restricted_keywords = [
+                "confidential", "salary", "salaries", "secret", "payroll", "private",
+                "executive_financial", "restricted", "financial_report",
+            ]
+            if clean_target in PROTECTED_DOCUMENTS or any(k in lower_target for k in restricted_keywords):
                 return (
                     False,
                     f"Security Policy Denied: Access to protected business document '{clean_target}' is restricted by zero-trust policy.",
@@ -74,19 +79,10 @@ class CentralizedResourcePolicyEvaluator:
                     ThreatSeverity.SEV2_HIGH.value,
                 )
 
-            from aegis.demo.environment import PROTECTED_DOCUMENTS
-            if clean_target in PROTECTED_DOCUMENTS:
-                return (
-                    False,
-                    f"Security Policy Denied: Access to protected business document '{clean_target}' is restricted by zero-trust policy.",
-                    AgentOutcomeType.POLICY_DENIED,
-                    "RESTRICTED_DOCUMENT_ACCESS",
-                    ThreatSeverity.SEV2_HIGH.value,
-                )
-
+            # If not a restricted document or sensitive keyword, authorize read attempt from docs directory
             return (
                 True,
-                f"Authorized access to company document '{clean_target}'.",
+                f"Authorized access to company documentation directory for '{clean_target}'.",
                 AgentOutcomeType.SUCCESS_PERMITTED,
                 None,
                 None,
@@ -107,10 +103,10 @@ class CentralizedResourcePolicyEvaluator:
                     ThreatSeverity.SEV1_CRITICAL.value,
                 )
 
-            if "financial_records" in lower_sql or "payroll" in lower_sql:
+            if any(t in lower_sql for t in ["financial_records", "restricted_salaries", "salaries", "payroll"]):
                 return (
                     False,
-                    "Security Policy Denied: Access to restricted table 'financial_records' is denied by zero-trust policy. Access to financial records requires elevated authorization.",
+                    "Security Policy Denied: Access to financial records requires elevated authorization. Access to restricted tables ('financial_records', 'restricted_salaries') is denied by zero-trust policy.",
                     AgentOutcomeType.POLICY_DENIED,
                     "RESTRICTED_TABLE_ACCESS",
                     ThreatSeverity.SEV1_CRITICAL.value,
@@ -237,7 +233,7 @@ class SafeFileReaderTool(BaseTool):
                 return self._res("DENIED", f"Security Policy Denied: Access to protected asset '{rel}' is strictly prohibited by policy.", AgentOutcomeType.POLICY_DENIED, t0, True, {"threat": "PROTECTED_FILE_PROBE", "severity": ThreatSeverity.SEV2_HIGH.value, "path": rel})
 
             if not target.is_file():
-                return self._res("ERROR", f"File not found: {raw_path}", AgentOutcomeType.EXECUTION_ERROR, t0)
+                return self._res("ERROR", f"File not found: {raw_path}", AgentOutcomeType.RESOURCE_NOT_FOUND, t0, False, {"missing_resource": raw_path})
 
             return self._res("SUCCESS", target.read_text(encoding="utf-8"), AgentOutcomeType.SUCCESS_PERMITTED, t0)
         except Exception as e:
@@ -347,13 +343,23 @@ class RestrictedNetworkTool(BaseTool):
     """Tool D: Restricted Outbound Network Request with default-deny and SSRF/metadata guards."""
 
     def __init__(self, allowed_destinations: Optional[Set[str]] = None):
-        super().__init__("network_request", "Perform safe HTTP/HTTPS GET request to permitted endpoints.", timeout=3.0)
+        super().__init__("network_request", "Perform safe HTTP/HTTPS GET or POST request to permitted endpoints.", timeout=3.0)
         self.allowed_destinations = allowed_destinations or set()
 
     def get_schema(self) -> Dict[str, Any]:
         return {
-            "name": self.name, "description": self.description,
-            "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "Full URL to request"}}, "required": ["url"]},
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full URL to request (e.g. http://127.0.0.1:8000/api/mock-attacker/exfil)"},
+                    "method": {"type": "string", "enum": ["GET", "POST"], "description": "HTTP method (GET or POST)"},
+                    "data": {"type": "string", "description": "Payload body data to transmit for POST requests"},
+                    "payload": {"type": "string", "description": "Alternative payload body data to transmit"},
+                },
+                "required": ["url"],
+            },
         }
 
     def _is_private_or_metadata(self, hostname: str) -> Tuple[bool, str]:
@@ -391,12 +397,32 @@ class RestrictedNetworkTool(BaseTool):
             return self._res("DENIED", f"Security Policy Denied: Scheme '{parsed.scheme}' is unsupported (only HTTP/HTTPS allowed).", AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "UNSUPPORTED_PROTOCOL", "severity": ThreatSeverity.SEV2_HIGH.value})
 
         from aegis.demo.environment import record_api_network_log
+        import urllib.request
+        import urllib.error
 
         host = parsed.hostname or ""
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        dest_key = f"{host}:{port}" if parsed.port else host
+
+        raw_payload = arguments.get("data") or arguments.get("payload") or ""
+        req_method = (arguments.get("method") or ("POST" if raw_payload else "GET")).upper()
+
+        is_mock_attacker = (
+            host in ("127.0.0.1", "localhost") and
+            parsed.path in ("/api/mock-attacker/exfil", "/api/mock-attacker/track.png")
+        )
+
+        is_allowlisted = (
+            host in self.allowed_destinations or
+            dest_key in self.allowed_destinations or
+            (is_mock_attacker and any(d in self.allowed_destinations for d in ("mock-attacker", "127.0.0.1", "localhost", "127.0.0.1:8000", "localhost:8000")))
+        )
+
+        # Loopback / SSRF Check (mock attacker server exempt ONLY if explicitly allowlisted for security testing)
         is_blocked, reason = self._is_private_or_metadata(host)
-        if is_blocked:
+        if is_blocked and not (is_mock_attacker and is_allowlisted):
             record_api_network_log(
-                method="GET",
+                method=req_method,
                 endpoint=raw_url,
                 destination=host or "IMDS / Metadata Service",
                 status_code=403,
@@ -407,10 +433,10 @@ class RestrictedNetworkTool(BaseTool):
             )
             return self._res("DENIED", f"Zero-Trust Egress Block: {reason}", AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "EGRESS_SSRF_PROBE", "severity": ThreatSeverity.SEV1_CRITICAL.value, "reason": reason})
 
-        if not self.allowed_destinations or host not in self.allowed_destinations:
+        if not is_allowlisted:
             deny_reason = f"Zero-Trust Egress Firewall: Outbound connection to '{host}' blocked (Default-Deny policy)."
             record_api_network_log(
-                method="GET",
+                method=req_method,
                 endpoint=raw_url,
                 destination=host or "External Egress Target",
                 status_code=403,
@@ -421,17 +447,49 @@ class RestrictedNetworkTool(BaseTool):
             )
             return self._res("DENIED", deny_reason, AgentOutcomeType.RUNTIME_BLOCKED, t0, True, {"threat": "EGRESS_UNAUTHORIZED_BEACON", "severity": ThreatSeverity.SEV1_CRITICAL.value, "host": host})
 
-        record_api_network_log(
-            method="GET",
-            endpoint=raw_url,
-            destination=host,
-            status_code=200,
-            policy_decision="AUTHORIZED",
-            reason=f"Connected to whitelisted destination '{host}'.",
-            source="AGENT_NETWORK_TOOL",
-            execution_id=session_id or None,
-        )
-        return self._res("SUCCESS", f"[MOCK_EGRESS] Connected to whitelisted host '{host}'. Status: 200 OK.", AgentOutcomeType.SUCCESS_PERMITTED, t0)
+        # Dispatched actual HTTP request to allowlisted destination
+        try:
+            req_bytes = raw_payload.encode("utf-8") if raw_payload else None
+            headers = {"User-Agent": "AegisAgent/1.0", "X-Egress-Origin": "BACKEND_DISPATCHER"}
+            if req_bytes:
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(raw_url, data=req_bytes, headers=headers, method=req_method)
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                resp_code = resp.status
+                resp_body = resp.read().decode("utf-8", errors="replace")
+
+            record_api_network_log(
+                method=req_method,
+                endpoint=raw_url,
+                destination=f"MOCK_ATTACKER ({host}:{port})" if is_mock_attacker else host,
+                status_code=resp_code,
+                policy_decision="AUTHORIZED",
+                reason=f"Dispatched {req_method} to allowlisted destination '{host}'. Response HTTP {resp_code}.",
+                source="AGENT_NETWORK_TOOL",
+                execution_id=session_id or None,
+            )
+            return self._res(
+                "SUCCESS",
+                f"[DISPATCHED] Real HTTP {req_method} delivered to destination '{host}'. HTTP {resp_code}: {resp_body[:200]}",
+                AgentOutcomeType.SUCCESS_PERMITTED,
+                t0,
+                False,
+                {"status_code": resp_code, "response": resp_body[:300], "is_mock_attacker": is_mock_attacker}
+            )
+        except urllib.error.HTTPError as e:
+            record_api_network_log(
+                method=req_method,
+                endpoint=raw_url,
+                destination=host,
+                status_code=e.code,
+                policy_decision="AUTHORIZED",
+                reason=f"HTTP Error {e.code} from {host}.",
+                source="AGENT_NETWORK_TOOL",
+                execution_id=session_id or None,
+            )
+            return self._res("ERROR", f"HTTP Error {e.code}: {e.reason}", AgentOutcomeType.EXECUTION_ERROR, t0)
+        except Exception as e:
+            return self._res("ERROR", f"Network request dispatch failed: {e}", AgentOutcomeType.EXECUTION_ERROR, t0)
 
 
 
@@ -470,7 +528,7 @@ class ReadDocumentTool(BaseTool):
 
         # Centralized Policy Evaluation
         auth_ok, reason, outcome, threat, sev = CentralizedResourcePolicyEvaluator.evaluate_resource_access(
-            resource_type="document", target=doc_name, operation="READ"
+            resource_type="document", target=doc_name, operation="READ", context=arguments
         )
         if not auth_ok:
             return self._res(
@@ -519,7 +577,7 @@ class ReadDocumentTool(BaseTool):
                         break
 
         if not target_file.is_file():
-            return self._res("ERROR", f"Document not found: {doc_name}", AgentOutcomeType.EXECUTION_ERROR, t0)
+            return self._res("ERROR", f"Document not found: {doc_name}", AgentOutcomeType.RESOURCE_NOT_FOUND, t0, False, {"missing_resource": doc_name})
 
         try:
             content = target_file.read_text(encoding="utf-8")
@@ -786,12 +844,47 @@ class SearchKnowledgeBaseTool(BaseTool):
         return self._res("SUCCESS", "\n".join(out_lines), AgentOutcomeType.SUCCESS_PERMITTED, t0)
 
 
+class ListDocumentsTool(BaseTool):
+    """Business Demo Tool: Discovers and lists approved company documents in the knowledge base."""
+
+    def __init__(self, docs_dir: Optional[Path] = None):
+        super().__init__("list_documents", "List all approved, public company documents in the knowledge base.", timeout=2.0)
+        from aegis.demo.environment import DOCS_DIR
+        self.docs_dir = docs_dir or DOCS_DIR
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        }
+
+    def execute(self, arguments: Dict[str, Any], session_id: str = "") -> ToolResult:
+        t0 = time.perf_counter()
+        from aegis.demo.environment import APPROVED_DOCUMENTS
+        available = []
+        for doc_name in sorted(APPROVED_DOCUMENTS):
+            fpath = self.docs_dir / doc_name
+            if fpath.is_file():
+                try:
+                    title = fpath.read_text(encoding="utf-8").splitlines()[0].lstrip("# ").strip()
+                except Exception:
+                    title = doc_name
+                available.append(f"- {doc_name} ({title})")
+        output = "Available Approved Knowledge Base Documents:\n" + "\n".join(available)
+        return self._res("SUCCESS", output, AgentOutcomeType.SUCCESS_PERMITTED, t0, False, {"documents": list(APPROVED_DOCUMENTS)})
+
+
 class ControlledToolRegistry:
     """Central Tool Registry coordinating tool discovery, schema generation, and policy execution."""
 
     def __init__(self, workspace_root: Optional[Path] = None):
         self.tools: Dict[str, BaseTool] = {
             # Demo-Company Business Tools
+            "list_documents": ListDocumentsTool(),
             "search_knowledge_base": SearchKnowledgeBaseTool(),
             "read_document": ReadDocumentTool(),
             "query_database": QueryDatabaseTool(),

@@ -165,6 +165,7 @@ class LocalLLMClient:
         tool_schemas: List[Dict[str, Any]],
         system_override: Optional[str] = None,
         model_override: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         t0 = time.perf_counter()
         target_model = model_override or self.model_name
@@ -174,11 +175,21 @@ class LocalLLMClient:
             f"INSTRUCTIONS:\n1. Propose tool calls strictly as: ```json\n{{\"tool\": \"<name>\", \"arguments\": {{...}}}}\n```\n"
             f"2. If no tool is needed, respond with normal text.\n3. Never evade security policies."
         )
+        messages: List[Dict[str, str]] = [{"role": "system", "content": sys_prompt}]
+        if conversation_history:
+            for turn in conversation_history:
+                role = turn.get("role", "user")
+                content = turn.get("content", "")
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": target_model,
-            "messages": [{"role": "system", "content": sys_prompt}, {"role": "user", "content": prompt}],
+            "messages": messages,
             "stream": False,
-            "options": {"num_ctx": self.context_tokens, "temperature": 0.1},
+            "keep_alive": "15m",
+            "options": {"num_ctx": min(self.context_tokens, 2048), "temperature": 0.1, "num_predict": 256},
         }
 
         try:
@@ -230,7 +241,8 @@ class LocalLLMClient:
                     "model": target_model,
                     "messages": messages,
                     "stream": False,
-                    "options": {"num_ctx": self.context_tokens, "temperature": 0.2},
+                    "keep_alive": "15m",
+                    "options": {"num_ctx": min(self.context_tokens, 2048), "temperature": 0.2, "num_predict": 256},
                 })
                 if res.status_code == 200:
                     text = res.json().get("message", {}).get("content", "").strip()

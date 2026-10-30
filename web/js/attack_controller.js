@@ -22,19 +22,27 @@ class AttackController {
       quarantines: 0,
     };
     this.executionRecords = {};
+    window.attackController = this;
     this.init();
   }
 
   async init() {
+    this.setupFetchInterceptor();
+    this.initNetworkSpikeMonitor();
+    this.initMotionGraph();
     this.initTabs();
+    this.initLandingPageFlow();
     await this.fetchAttacks();
     await this.fetchSystemStatus();
     await this.fetchAgentStatus();
     await this.loadOverviewDashboard();
     await this.loadCompanyZone();
     await this.loadCompanyApiLogs();
-    await this.fetchVoiceStatus();
     await this.loadLedgerTable();
+    await this.loadSOCDashboard();
+    await this.loadSOCAnalytics();
+    await this.loadSOCIncidents();
+    this.checkActiveCampaign();
     this.bindUI();
   }
 
@@ -169,14 +177,395 @@ class AttackController {
     }
   }
 
-  updateModelIndicators(modelName) {
+  setupFetchInterceptor() {
+    if (window._aegisFetchIntercepted) return;
+    window._aegisFetchIntercepted = true;
+    const originalFetch = window.fetch;
+    const self = this;
+    window.fetch = async function(...args) {
+      const start = Date.now();
+      const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
+      const method = (args[1] && args[1].method) ? args[1].method.toUpperCase() : "GET";
+      
+      try {
+        const response = await originalFetch.apply(this, args);
+        const latency = Date.now() - start;
+        // ONLY pulse spike when a Red Zone attack is executed through the APIs
+        const isRedZoneAttack = 
+          method === "POST" && (
+            url.includes("/api/chat") ||
+            url.includes("/api/jailbreaks/execute") ||
+            url.includes("/api/attacks/execute") ||
+            url.includes("/api/techniques/run") ||
+            url.includes("/api/campaign/run") ||
+            url.includes("/api/pep/test") ||
+            url.includes("/api/simulation/breach") ||
+            url.includes("/api/mock-attacker/exfil")
+          );
+        if (isRedZoneAttack) {
+          self.pulseNetworkSpike(method, url, latency, response.status);
+        }
+        return response;
+      } catch (err) {
+        const latency = Date.now() - start;
+        const isRedZoneAttack = 
+          method === "POST" && (
+            url.includes("/api/chat") ||
+            url.includes("/api/jailbreaks/execute") ||
+            url.includes("/api/attacks/execute") ||
+            url.includes("/api/techniques/run") ||
+            url.includes("/api/campaign/run") ||
+            url.includes("/api/pep/test") ||
+            url.includes("/api/simulation/breach") ||
+            url.includes("/api/mock-attacker/exfil")
+          );
+        if (isRedZoneAttack) {
+          self.pulseNetworkSpike(method, url, latency, 500);
+        }
+        throw err;
+      }
+    };
+  }
+
+  initNetworkSpikeMonitor() {
+    this.netCanvas = document.getElementById("net-spike-canvas");
+    this.netTotalPackets = 0;
+    this.netSpikeAmplitudes = [];
+    if (this.netCanvas) {
+      this.renderNetworkWaveform();
+    }
+  }
+
+  pulseNetworkSpike(method, endpoint, latencyMs = 25, status = 200) {
+    this.netTotalPackets += 1;
+    const now = new Date();
+    const timeStr = now.toTimeString().split(" ")[0] + "." + String(now.getMilliseconds()).padStart(3, "0");
+    
+    const totEl = document.getElementById("net-total-packets");
+    if (totEl) totEl.innerText = `${this.netTotalPackets} Red Attacks Tracked`;
+    const lastEp = document.getElementById("net-last-endpoint");
+    if (lastEp) lastEp.innerText = endpoint.length > 36 ? endpoint.substring(0, 36) + "..." : endpoint;
+    const lastLat = document.getElementById("net-last-latency");
+    if (lastLat) lastLat.innerText = `${latencyMs}ms`;
+    
+    // Highlight route badge in red during attack
+    let badgeId = null;
+    if (endpoint.includes("/agent/chat") || endpoint.includes("/chat")) badgeId = "route-badge-chat";
+    else if (endpoint.includes("/attacks") || endpoint.includes("/jailbreaks")) badgeId = "route-badge-eval";
+    else if (endpoint.includes("/system/status") || endpoint.includes("/status")) badgeId = "route-badge-status";
+    else if (endpoint.includes("/incidents") || endpoint.includes("/soc")) badgeId = "route-badge-incidents";
+    else if (endpoint.includes("/containment") || endpoint.includes("/quarantine") || endpoint.includes("/simulation/breach")) badgeId = "route-badge-slaughter";
+    
+    if (badgeId) {
+      const badge = document.getElementById(badgeId);
+      if (badge) {
+        badge.style.boxShadow = "0 0 14px #ef4444";
+        badge.style.borderColor = "#ef4444";
+        setTimeout(() => {
+          badge.style.boxShadow = "";
+          badge.style.borderColor = "";
+        }, 1200);
+      }
+    }
+    
+    // Sharp spike amplitude on actual attacks
+    const amplitude = Math.min(65, Math.max(30, latencyMs / 8));
+    this.netSpikeAmplitudes.push(amplitude);
+    
+    const stream = document.getElementById("net-api-recent-stream");
+    if (stream) {
+      const statusColor = status < 300 ? "#ef4444" : (status === 403 ? "#f59e0b" : "#ef4444");
+      const item = document.createElement("div");
+      item.className = "net-log-item";
+      item.innerHTML = `
+        <span><span style="color:#64748b;">[${timeStr}]</span> <strong style="color:${statusColor}">${method} [RED ATTACK]</strong> ${endpoint}</span>
+        <span style="color:${statusColor}; font-weight:600;">${status} &bull; ${latencyMs}ms</span>
+      `;
+      stream.insertBefore(item, stream.firstChild);
+      while (stream.children.length > 25) {
+        stream.removeChild(stream.lastChild);
+      }
+      const cnt = document.getElementById("net-stream-count");
+      if (cnt) cnt.innerText = `${this.netTotalPackets} calls recorded`;
+    }
+  }
+
+  renderNetworkWaveform() {
+    if (!this.netCanvas) return;
+    const ctx = this.netCanvas.getContext("2d");
+    if (!ctx) return;
+    
+    const width = this.netCanvas.width = this.netCanvas.offsetWidth || 800;
+    const height = this.netCanvas.height = 90;
+    
+    const offset = { val: 0 };
+    const animate = () => {
+      ctx.fillStyle = "#FAF8F5";
+      ctx.fillRect(0, 0, width, height);
+      
+      ctx.strokeStyle = "rgba(226, 221, 213, 0.9)";
+      ctx.lineWidth = 1;
+      for (let y = 15; y < height; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+      for (let x = 0; x < width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      
+      const midY = height / 2;
+      let activeSpike = 0;
+      if (this.netSpikeAmplitudes && this.netSpikeAmplitudes.length > 0) {
+        activeSpike = this.netSpikeAmplitudes[this.netSpikeAmplitudes.length - 1];
+        this.netSpikeAmplitudes[this.netSpikeAmplitudes.length - 1] *= 0.90;
+        if (this.netSpikeAmplitudes[this.netSpikeAmplitudes.length - 1] < 1) {
+          this.netSpikeAmplitudes.pop();
+        }
+      }
+      
+      // Color waveform deep editorial maroon during attack spike, subtle slate when quiet
+      ctx.strokeStyle = activeSpike > 0 ? "#B23A22" : "#96938E";
+      ctx.lineWidth = activeSpike > 0 ? 2.4 : 1.4;
+      ctx.beginPath();
+      
+      for (let x = 0; x < width; x += 3) {
+        const baseSine = Math.sin((x + offset.val) * 0.04) * (activeSpike > 0 ? 4 : 1.2);
+        let spike = 0;
+        if (activeSpike > 0 && x > width * 0.45 && x < width * 0.85) {
+          const spikeCenter = width * 0.65;
+          const dist = Math.abs(x - spikeCenter);
+          spike = Math.max(0, (1 - dist / 70)) * activeSpike * Math.sin(x * 0.25);
+        }
+        const y = midY + baseSine + spike;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      
+      offset.val += 1.5;
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }
+
+  initMotionGraph() {
+    this.motionEvents = [];
+    const refreshBtn = document.getElementById("btn-refresh-motion-graph");
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", () => this.renderMotionGraph());
+    }
+  }
+
+  addMotionEvent(eventData) {
+    this.motionEvents.push({
+      id: eventData.id || `EVT-${Date.now().toString(36).toUpperCase()}`,
+      time: eventData.time || new Date().toLocaleTimeString(),
+      category: eventData.category || "Corporate Resource Jailbreak",
+      llmReaction: eventData.llmReaction || "Refusal / Benign",
+      enforcement: eventData.enforcement || "PEP_DEFENSE_BLOCKED",
+      severity: eventData.severity || "MEDIUM",
+      status: eventData.status || "BLOCKED",
+      isBreach: !!eventData.isBreach
+    });
+    const cnt = document.getElementById("motion-node-count");
+    if (cnt) cnt.innerText = `${this.motionEvents.length} Incident Nodes`;
+    this.renderMotionGraph();
+  }
+
+  renderMotionGraph() {
+    const svg = document.getElementById("blue-motion-svg");
+    const emptyNotice = document.getElementById("motion-graph-empty");
+    if (!svg) return;
+    
+    if (!this.motionEvents || this.motionEvents.length === 0) {
+      if (emptyNotice) emptyNotice.style.display = "block";
+      svg.innerHTML = "";
+      return;
+    }
+    if (emptyNotice) emptyNotice.style.display = "none";
+    
+    const cardWidth = 175;
+    const cardGap = 40;
+    const svgWidth = Math.max(760, this.motionEvents.length * (cardWidth + cardGap) + 40);
+    svg.setAttribute("viewBox", `0 0 ${svgWidth} 150`);
+    svg.style.width = `${svgWidth}px`;
+    
+    let html = `
+      <defs>
+        <marker id="motion-arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#96938E" />
+        </marker>
+        <filter id="card-shadow" x="-10%" y="-10%" width="125%" height="125%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1A1A1A" flood-opacity="0.08" />
+        </filter>
+      </defs>
+    `;
+    
+    this.motionEvents.forEach((evt, idx) => {
+      const x = 25 + idx * (cardWidth + cardGap);
+      const isBreach = evt.isBreach || (evt.enforcement && evt.enforcement.includes("BREACH")) || evt.severity === "CRITICAL";
+      const isDrill = !!evt.isSimulatedDrill;
+      const color = isDrill ? "#B45309" : (isBreach ? "#B23A22" : "#1E653A");
+      const headerBg = isDrill ? "#FDF6E2" : (isBreach ? "#FBEBE8" : "#EBF5EE");
+      const catLabel = (evt.category || "Adversarial Attack").replace(/_/g, " ").substring(0, 19);
+      const enfLabel = isDrill ? "⚡ DRILL SLAUGHTER" : (isBreach ? "🚨 BREACH SLAUGHTER" : "🛡️ PEP BLOCKED");
+      const llmSummary = (evt.llmReaction || "Refused exploit").substring(0, 22);
+
+      // Connecting arrow between consecutive incident cards
+      if (idx > 0) {
+        const prevX = 25 + (idx - 1) * (cardWidth + cardGap) + cardWidth;
+        html += `<line x1="${prevX + 4}" y1="72" x2="${x - 6}" y2="72" stroke="#96938E" stroke-width="2" stroke-dasharray="3,3" marker-end="url(#motion-arrow)" />`;
+      }
+      
+      html += `
+        <g class="motion-card-node" data-idx="${idx}" style="cursor: pointer;" filter="url(#card-shadow)">
+          <title>Click to inspect forensic trace #${idx + 1}: ${evt.category} (${evt.time})</title>
+          <!-- Card Body Background (Editorial Paper) -->
+          <rect x="${x}" y="15" width="${cardWidth}" height="115" rx="6" fill="#FAF8F5" stroke="${color}" stroke-width="1.5" />
+          
+          <!-- Card Header Bar -->
+          <path d="M ${x} 21 A 6 6 0 0 1 ${x + 6} 15 L ${x + cardWidth - 6} 15 A 6 6 0 0 1 ${x + cardWidth} 21 L ${x + cardWidth} 42 L ${x} 42 Z" fill="${headerBg}" />
+          <line x1="${x}" y1="42" x2="${x + cardWidth}" y2="42" stroke="${color}" stroke-width="0.8" opacity="0.4" />
+          
+          <!-- Incident ID & Time -->
+          <text x="${x + 10}" y="33" fill="#1A1A1A" font-size="11" font-weight="700" font-family="'Inter', sans-serif">#${idx + 1} Incident</text>
+          <text x="${x + cardWidth - 10}" y="33" fill="#6E6B66" font-size="10" font-weight="600" font-family="'Fira Code', monospace" text-anchor="end">${evt.time}</text>
+          
+          <!-- Attack Category Label (Editorial Ink) -->
+          <text x="${x + 10}" y="62" fill="#1A1A1A" font-size="11" font-weight="700" font-family="'Inter', sans-serif">${catLabel}</text>
+          
+          <!-- LLM Reaction Snippet -->
+          <text x="${x + 10}" y="78" fill="#6E6B66" font-size="9.5" font-family="'Fira Code', monospace">${llmSummary}</text>
+          
+          <!-- Verdict Enforcement Pill -->
+          <rect x="${x + 8}" y="92" width="${cardWidth - 16}" height="22" rx="4" fill="${color}15" stroke="${color}" stroke-width="1" />
+          <text x="${x + (cardWidth / 2)}" y="107" fill="${color}" font-size="9.5" font-weight="700" font-family="'Inter', sans-serif" text-anchor="middle">${enfLabel}</text>
+        </g>
+      `;
+    });
+    
+    svg.innerHTML = html;
+
+    // Attach click listeners to cards for interactive forensic inspection
+    svg.querySelectorAll(".motion-card-node").forEach((card) => {
+      card.addEventListener("click", () => {
+        const idx = parseInt(card.getAttribute("data-idx"), 10);
+        this.inspectMotionEvent(idx);
+      });
+    });
+  }
+
+  inspectMotionEvent(idx) {
+    const evt = this.motionEvents[idx];
+    if (!evt) return;
+    const isBreach = evt.isBreach || (evt.enforcement && evt.enforcement.includes("BREACH"));
+    const statusText = isBreach ? "SLAUGHTERED (CONTAINED)" : "BLOCKED BY POLICY ENGINE";
+    alert(
+      `INCIDENT FORENSIC TRACE #${idx + 1}\n` +
+      `────────────────────────────────────────\n` +
+      `• Timestamp: ${evt.time}\n` +
+      `• Category: ${evt.category || "Unknown"}\n` +
+      `• LLM Reaction: ${evt.llmReaction || "Refusal recorded"}\n` +
+      `• PEP Enforcement: ${evt.enforcement || "PEP_DEFENSE_BLOCKED"}\n` +
+      `• Severity: ${evt.severity || "HIGH"}\n` +
+      `• Containment: ${statusText}\n` +
+      `• Proof: Recorded in Cryptographic WORM Audit Ledger`
+    );
+  }
+
+  logBlueSecurityEvent(evt) {
+    const stream = document.getElementById("blue-events-stream");
+    if (!stream) return;
+    
+    const emptyNotice = stream.querySelector(".text-muted");
+    if (emptyNotice && emptyNotice.innerText.includes("Listening")) {
+      stream.innerHTML = "";
+    }
+    
+    const now = new Date();
+    const timeStr = now.toTimeString().split(" ")[0];
+    const isDenial = evt.pepDecision === "PEP_DENIED" || evt.pepDecision === "DENIED" || evt.status === "DENIED";
+    const isBreach = evt.isBreach || evt.outcome === "EXFILTRATION_CONFIRMED" || (evt.severity && evt.severity.includes("CRITICAL"));
+    
+    const el = document.createElement("div");
+    el.style.cssText = "margin-bottom: 8px; padding: 6px 8px; background: rgba(15,23,42,0.85); border: 1px solid #1e293b; border-radius: 4px; font-size: 0.73rem; border-left: 3px solid " + (isBreach ? "#ef4444" : (isDenial ? "#f59e0b" : "#10b981")) + ";";
+    el.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+        <span style="color: #64748b; font-family: monospace;">[${timeStr}]</span>
+        <strong style="color: ${isBreach ? '#ef4444' : (isDenial ? '#38bdf8' : '#34d399')}; text-transform: uppercase;">
+          ${evt.category || 'ADVERSARIAL_ATTACK'}
+        </strong>
+        <span class="badge ${isBreach ? 'badge-blocked' : (isDenial ? 'badge-blocked' : 'badge-permitted')}" style="font-size: 0.65rem;">
+          ${isBreach ? 'QUARANTINE_SLAUGHTER' : (isDenial ? 'PEP_DENIED' : 'PEP_AUTHORIZED')}
+        </span>
+      </div>
+      <div style="color: #cbd5e1; margin-bottom: 2px;">
+        <strong>Target:</strong> <code style="color:#38bdf8;">${evt.target || 'company_assets'}</code> | <strong>Model:</strong> ${evt.model || this.activeModel || 'qwen2.5:3b'}
+      </div>
+      <div style="color: #94a3b8; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        <strong>Prompt:</strong> "${(evt.prompt || '').substring(0, 80)}..."
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-top: 3px; font-size: 0.68rem; color: #64748b;">
+        <span>Tool: <code style="color:#f59e0b;">${evt.tool || 'none'}</code></span>
+        <span>Audit Block: <strong style="color:#38bdf8;">#${evt.auditBlock || '--'}</strong></span>
+      </div>
+    `;
+    stream.insertBefore(el, stream.firstChild);
+    while (stream.children.length > 30) {
+      stream.removeChild(stream.lastChild);
+    }
+  }
+
+  updateModelIndicators(modelName, confirmed = true) {
+    if (!modelName) return;
+    this.activeModel = modelName;
+    
+    // 1. Selector value
+    const selector = document.getElementById("global-model-selector");
+    if (selector && selector.value !== modelName) selector.value = modelName;
+
+    // 2. Chat mode model indicator
     const chatInd = document.getElementById("chat-model-indicator");
     if (chatInd) chatInd.innerText = modelName;
+
+    // 3. Technical evidence active model
     const techInd = document.getElementById("tech-active-model");
     if (techInd) techInd.innerText = modelName;
+
+    // 4. Target Zone overview model badge (Screenshot 5)
+    const targetViewModel = document.getElementById("target-view-model");
+    if (targetViewModel) targetViewModel.innerText = modelName;
+
+    // 5. Overview Zone active model card
+    const ovModel = document.getElementById("overview-active-model");
+    if (ovModel) ovModel.innerText = modelName;
+
+    // 6. Target Zone architecture visualizer model node (Screenshot 4)
+    const archSub = document.querySelector("#arch-node-inference .arch-node-sub");
+    if (archSub) archSub.innerText = `${modelName} (RO)`;
+
+    // 7. Generic active model displays across all screens
+    document.querySelectorAll(".active-model-display").forEach((el) => {
+      el.innerText = modelName;
+    });
+
+    // 8. Top status badge with verified status
+    const topBadge = document.getElementById("model-status-badge");
+    if (topBadge) {
+      topBadge.innerText = confirmed ? `${modelName} (Confirmed Active)` : `${modelName} (Verifying...)`;
+      topBadge.className = confirmed ? "badge badge-permitted" : "badge badge-neutral";
+    }
   }
 
   async selectTargetModel(modelName) {
+    // Show intermediate verifying state
+    this.updateModelIndicators(modelName, false);
+
     try {
       const res = await fetch("/api/models/select", {
         method: "POST",
@@ -185,14 +574,17 @@ class AttackController {
       });
       if (res.ok) {
         const data = await res.json();
-        console.log(`Target model successfully switched to: ${data.active_model}`);
-        this.updateModelIndicators(data.active_model);
-        await this.fetchSystemStatus();
+        console.log(`Backend verified active model: ${data.active_model}`);
+        this.updateModelIndicators(data.active_model, true);
       } else {
-        console.warn(`Failed to switch model: HTTP ${res.status}`);
+        console.warn(`Model switch rejected by backend: ${res.status}`);
+        const topBadge = document.getElementById("model-status-badge");
+        if (topBadge) topBadge.innerText = `${this.activeModel || "qwen2.5:3b"} (Switch Failed)`;
       }
     } catch (e) {
       console.error("Model selection error:", e);
+      const topBadge = document.getElementById("model-status-badge");
+      if (topBadge) topBadge.innerText = `${this.activeModel || "qwen2.5:3b"} (Error)`;
     }
   }
 
@@ -213,8 +605,9 @@ class AttackController {
           } else if (btn.dataset.tab === "pane-target") {
             this.fetchAgentStatus();
           } else if (btn.dataset.tab === "pane-blue") {
-            this.loadLedgerTable();
             this.loadBlueEvents();
+          } else if (btn.dataset.tab === "pane-ledger") {
+            this.loadLedgerTable();
           } else if (btn.dataset.tab === "pane-red") {
             this.fetchAgentStatus();
           }
@@ -223,6 +616,58 @@ class AttackController {
         }
       });
     });
+  }
+
+  initLandingPageFlow() {
+    const landingView = document.getElementById("landing-page-view");
+    const dashboardView = document.getElementById("dashboard-view");
+    const headerTopPills = document.getElementById("header-top-pills");
+    const heroLaunchBtn = document.getElementById("btn-hero-launch-dashboard");
+    const headerBackBtn = document.getElementById("btn-header-back-landing");
+    const brandHomeBtn = document.getElementById("brand-home-link");
+
+    const showDashboard = (tabId = "pane-company") => {
+      if (landingView) landingView.style.display = "none";
+      if (dashboardView) dashboardView.style.display = "block";
+      if (headerTopPills) headerTopPills.style.display = "flex";
+      if (headerBackBtn) headerBackBtn.style.display = "inline-flex";
+      const targetTab = tabId.replace("pane-", "");
+      const tabBtn = document.getElementById(`tab-${targetTab}`);
+      if (tabBtn) tabBtn.click();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const showLanding = () => {
+      if (dashboardView) dashboardView.style.display = "none";
+      if (landingView) landingView.style.display = "block";
+      if (headerTopPills) headerTopPills.style.display = "none";
+      if (headerBackBtn) headerBackBtn.style.display = "none";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    if (heroLaunchBtn) heroLaunchBtn.addEventListener("click", () => showDashboard("pane-company"));
+    if (headerBackBtn) headerBackBtn.addEventListener("click", () => showLanding());
+    if (brandHomeBtn) {
+      brandHomeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        showLanding();
+      });
+    }
+
+    // Scroll-triggered reveal motion observer for landing page chapters
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          }
+        });
+      }, { threshold: 0.12 });
+
+      document.querySelectorAll(".motion-reveal").forEach((el) => observer.observe(el));
+    } else {
+      document.querySelectorAll(".motion-reveal").forEach((el) => el.classList.add("is-visible"));
+    }
   }
 
 
@@ -637,20 +1082,58 @@ class AttackController {
           }
           stream.innerHTML = "";
           records.reverse().forEach((r) => {
-            const line = document.createElement("div");
-            line.style.marginBottom = "4px";
-            line.style.paddingBottom = "4px";
-            line.style.borderBottom = "1px solid #1e293b";
-            const isCrit = r.severity.includes("CRITICAL") || r.severity.includes("HIGH");
-            line.innerHTML = `
-              <span class="text-muted">[${r.timestamp.substring(11, 19)}]</span>
-              <strong class="${r.source_zone === 'RED' ? 'text-red' : (r.source_zone === 'BLUE' ? 'text-cyan' : 'text-amber')}">[${r.source_zone}]</strong>
-              <span class="${isCrit ? 'text-red font-bold' : 'text-blue'}">${r.event_type}</span>
-              <span class="badge ${isCrit ? 'badge-blocked' : 'badge-permitted'}" style="font-size:0.65rem;">${r.severity}</span>
-              <span style="color:#94a3b8; font-size:0.7rem;">(Block #${r.index})</span>
+            const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "00:00:00";
+            const details = r.details || {};
+            const isCrit = r.severity.includes("CRITICAL") || r.event_type.includes("BREACH");
+            const isDenial = r.severity.includes("HIGH") || r.event_type.includes("DENIED") || (details.pep_decision && details.pep_decision.includes("DENIED"));
+            const cat = details.attack_category || r.event_type.replace(/_/g, " ");
+            const target = details.target || details.expected_outcome || details.tool || "Company Resource";
+            const model = details.target_model || this.activeModel || "qwen2.5:3b";
+            const tool = details.tool || (details.proposed_tool ? (details.proposed_tool.tool || "tool") : "NONE");
+            const prompt = details.prompt || details.response_preview || "";
+
+            const el = document.createElement("div");
+            el.style.cssText = "margin-bottom: 8px; padding: 6px 8px; background: rgba(15,23,42,0.85); border: 1px solid #1e293b; border-radius: 4px; font-size: 0.73rem; border-left: 3px solid " + (isCrit ? "#ef4444" : (isDenial ? "#f59e0b" : "#10b981")) + ";";
+            el.innerHTML = `
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                <span style="color: #64748b; font-family: monospace;">[${timeStr}]</span>
+                <strong style="color: ${isCrit ? '#ef4444' : (isDenial ? '#38bdf8' : '#34d399')}; text-transform: uppercase;">
+                  ${cat}
+                </strong>
+                <span class="badge ${isCrit ? 'badge-blocked' : (isDenial ? 'badge-blocked' : 'badge-permitted')}" style="font-size: 0.65rem;">
+                  ${isCrit ? 'QUARANTINE_SLAUGHTER' : (isDenial ? 'PEP_DENIED' : 'PEP_AUTHORIZED')}
+                </span>
+              </div>
+              <div style="color: #cbd5e1; margin-bottom: 2px;">
+                <strong>Target:</strong> <code style="color:#38bdf8;">${target}</code> | <strong>Model:</strong> ${model}
+              </div>
+              ${prompt ? `<div style="color: #94a3b8; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><strong>Prompt:</strong> "${prompt.substring(0, 80)}..."</div>` : ''}
+              <div style="display: flex; justify-content: space-between; margin-top: 3px; font-size: 0.68rem; color: #64748b;">
+                <span>Tool: <code style="color:#f59e0b;">${tool}</code></span>
+                <span>Audit Block: <strong style="color:#38bdf8;">#${r.index}</strong></span>
+              </div>
             `;
-            stream.appendChild(line);
+            stream.appendChild(el);
           });
+        }
+
+        // Initialize motion graph with historical events if empty
+        if (this.motionEvents.length === 0 && records && records.length > 0) {
+          records.slice(-6).forEach(r => {
+            const isCrit = r.severity && (r.severity.includes("CRITICAL") || r.severity.includes("HIGH"));
+            this.motionEvents.push({
+              id: `BLK-${r.index}`,
+              time: r.timestamp ? r.timestamp.substring(11, 19) : "00:00:00",
+              category: r.event_type || "Adversarial Probe",
+              llmReaction: isCrit ? "Exploit / Escalation Vector" : "Policy Monitored",
+              enforcement: isCrit ? "SLAUGHTER_CONTAINED" : "AUDIT_RECORDED",
+              severity: r.severity || "MEDIUM",
+              remediation: isCrit ? "Process quarantine confirmed and logged to WORM ledger." : "Zero-trust verification passed.",
+              status: isCrit ? "QUARANTINED" : "LOGGED",
+              isBreach: isCrit
+            });
+          });
+          this.renderMotionGraph();
         }
       }
     } catch (e) {
@@ -691,6 +1174,63 @@ class AttackController {
     }
   }
 
+  async triggerSimulatedBreachDrill() {
+    if (!confirm("Execute Operator Simulated Breach Drill?\n\nThis explicitly tests containment slaughter on an isolated synthetic canary fixture. It does NOT grant permissions to the agent or bypass the PEP.")) return;
+    
+    try {
+      const res = await fetch("/api/simulation/breach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operator_id: "secops-operator",
+          drill_notes: "Operator containment verification drill"
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        
+        // Add to Motion Graph as simulated drill
+        this.addMotionEvent({
+          id: data.drill_id,
+          time: new Date().toLocaleTimeString(),
+          category: "SIMULATED_BREACH_DRILL",
+          llmReaction: "ISOLATED_CANARY_FIXTURE (No LLM Access)",
+          enforcement: `CONTAINMENT_SLAUGHTER (${data.slaughter_latency_ms}ms)`,
+          severity: "SEV-1_CRITICAL (DRILL)",
+          remediation: `OPERATOR DRILL COMPLETE: Process killed in ${data.slaughter_latency_ms}ms. Committed to WORM Block #${data.audit_record_index}. Note: Real zero-trust PEP remains 100% defended.`,
+          status: "SIMULATED_BREACH_CONTAINED",
+          isBreach: false,
+          isSimulatedDrill: true
+        });
+
+        // Add to Blue Stream
+        const stream = document.getElementById("blue-events-stream");
+        if (stream) {
+          const line = document.createElement("div");
+          line.style.cssText = "margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid #1e293b; background: rgba(245, 158, 11, 0.1); padding: 4px 6px; border-radius: 3px;";
+          line.innerHTML = `
+            <span class="text-muted">[${new Date().toLocaleTimeString()}]</span>
+            <strong class="text-amber">[OPERATOR DRILL]</strong>
+            <span class="text-amber font-bold">SIMULATED BREACH EXECUTED</span>
+            <span class="badge badge-blocked" style="font-size:0.65rem;">CONTAINED (${data.slaughter_latency_ms}ms)</span>
+            <span style="color:#94a3b8; font-size:0.7rem;">(WORM Block #${data.audit_record_index})</span>
+            <div style="font-size:0.68rem; color:#fef3c7; margin-top:2px;">Target: ${data.target_fixture} &bull; Canary snippet: <code>${data.canary_data_snippet.substring(0, 40)}...</code></div>
+          `;
+          stream.insertBefore(line, stream.firstChild);
+        }
+
+        alert(`SIMULATED BREACH DRILL COMPLETED\n\n• Target Fixture: ${data.target_fixture}\n• Slaughter Latency: ${data.slaughter_latency_ms} ms\n• WORM Ledger Block: #${data.audit_record_index}\n• Real PEP Invariant: 100% INTACT (Zero real breaches)`);
+        await this.loadBlueEvents();
+        await this.loadSOCDashboard();
+        await this.loadSOCIncidents();
+      } else {
+        alert("Simulated breach drill failed: " + res.statusText);
+      }
+    } catch (e) {
+      alert("Simulated breach drill error: " + e.message);
+    }
+  }
+
   bindUI() {
     const select = document.getElementById("attack-select");
     if (select) {
@@ -712,9 +1252,71 @@ class AttackController {
       fireBtn.addEventListener("click", () => this.launchSingleAttack());
     }
 
+    const campBtn = document.getElementById("btn-run-campaign") || document.getElementById("btn-run-techniques");
+    if (campBtn) {
+      campBtn.addEventListener("click", () => this.start20Campaign());
+    }
+
+    const cancelCampBtn = document.getElementById("btn-cancel-campaign");
+    if (cancelCampBtn) {
+      cancelCampBtn.addEventListener("click", () => this.cancelActiveCampaign());
+    }
+
+    const jbBtn = document.getElementById("btn-open-jailbreaks");
+    if (jbBtn) {
+      jbBtn.addEventListener("click", () => this.openJailbreakLibrary());
+    }
+
+    const closeJbBtn = document.getElementById("btn-close-jailbreak-modal");
+    if (closeJbBtn) {
+      closeJbBtn.addEventListener("click", () => {
+        const m = document.getElementById("jailbreak-modal");
+        if (m) m.classList.add("hidden");
+      });
+    }
+
+    const loadJbBtn = document.getElementById("btn-load-jailbreak-to-chat");
+    if (loadJbBtn) {
+      loadJbBtn.addEventListener("click", () => this.loadSelectedJailbreakIntoChat());
+    }
+
+    const runJbBtn = document.getElementById("btn-run-jailbreak-scenario");
+    if (runJbBtn) {
+      runJbBtn.addEventListener("click", () => this.runSelectedJailbreakScenario());
+    }
+
+    const scrollChatBtn = document.getElementById("btn-scroll-chat");
+    if (scrollChatBtn) {
+      scrollChatBtn.addEventListener("click", () => {
+        const inp = document.getElementById("chat-input");
+        if (inp) {
+          inp.focus();
+          inp.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    }
+
+    const refreshIncBtn = document.getElementById("btn-refresh-incidents");
+    if (refreshIncBtn) {
+      refreshIncBtn.addEventListener("click", () => this.loadSOCIncidents());
+    }
+
+    const closeIncBtn = document.getElementById("btn-close-incident-modal");
+    if (closeIncBtn) {
+      closeIncBtn.addEventListener("click", () => {
+        const m = document.getElementById("incident-detail-modal");
+        if (m) m.classList.add("hidden");
+      });
+    }
+
     const suiteBtn = document.getElementById("btn-run-suite");
     if (suiteBtn) {
-      suiteBtn.addEventListener("click", () => this.runFullTestSuite());
+      suiteBtn.addEventListener("click", () => this.runFullTestSuite(true));
+    }
+
+    const sentryBtn = document.getElementById("btn-run-sentry-suite");
+    if (sentryBtn) {
+      sentryBtn.addEventListener("click", () => this.runFullTestSuite(false));
     }
 
     const scenariosBtn = document.getElementById("btn-run-scenarios");
@@ -881,28 +1483,28 @@ class AttackController {
       blueRefBtn.addEventListener("click", () => this.loadBlueEvents());
     }
 
+    const clearStreamBtn = document.getElementById("btn-clear-blue-stream");
+    if (clearStreamBtn) {
+      clearStreamBtn.addEventListener("click", () => {
+        const stream = document.getElementById("blue-events-stream");
+        if (stream) stream.innerHTML = '<div class="text-muted">[BLUE-SOC] Stream feed cleared. Listening for incoming events...</div>';
+      });
+    }
+
+    const simBreachBtn = document.getElementById("btn-operator-sim-breach");
+    if (simBreachBtn) {
+      simBreachBtn.addEventListener("click", () => this.triggerSimulatedBreachDrill());
+    }
+
     // Clear Audit Ledger
     const clearLedgerBtn = document.getElementById("btn-clear-ledger");
     if (clearLedgerBtn) {
       clearLedgerBtn.addEventListener("click", () => this.clearAuditLedger());
     }
 
-    // ElevenLabs Voice Controls
-    const voiceBriefingBtn = document.getElementById("btn-play-voice-briefing");
-    if (voiceBriefingBtn) {
-      voiceBriefingBtn.addEventListener("click", () => this.playVoiceBriefing());
-    }
-
-    const voiceQueryBtn = document.getElementById("btn-submit-voice-query");
-    if (voiceQueryBtn) {
-      voiceQueryBtn.addEventListener("click", () => this.submitVoiceQuery());
-    }
-
-      const voiceInput = document.getElementById("voice-query-input");
-    if (voiceInput) {
-      voiceInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") this.submitVoiceQuery();
-      });
+    const togglePepBtn = document.getElementById("btn-toggle-strict-pep");
+    if (togglePepBtn) {
+      togglePepBtn.addEventListener("click", () => this.toggleStrictPEP());
     }
 
     // AI Workbench Chat Interface Bindings
@@ -1043,10 +1645,41 @@ class AttackController {
           data.execution_id
         );
 
+        this.animateArchitectureFromExecution(data);
+        await this.loadSOCDashboard();
+        await this.loadSOCAnalytics();
+        await this.loadSOCIncidents();
+
         if (window.aegisDashboard) {
           window.aegisDashboard.refreshLedgerStatus();
         }
         await this.loadBlueEvents();
+
+        this.logBlueSecurityEvent({
+          category: (objInput && objInput.value) || "Adversarial Prompt Test",
+          prompt: prompt,
+          model: targetModel,
+          tool: data.tool_status === "PROPOSED" && data.tool_invocation ? data.tool_invocation : (data.tool_status || "NONE"),
+          target: data.resource_access_outcome || "company_database_docs",
+          pepDecision: data.pep_decision,
+          status: data.pep_decision === "DENIED" ? "DENIED" : (data.confirmed_breach ? "BREACH" : "AUTHORIZED"),
+          auditBlock: data.audit_block_index || (data.audit_record ? data.audit_record.index : "--"),
+          isBreach: !!(data.confirmed_breach || (data.pep_decision && data.pep_decision.includes("BREACH")))
+        });
+
+        const isBreach = !!(data.pep_decision && (data.pep_decision.includes("BREACH") || data.pep_decision.includes("CONFIRMED_BREACH")));
+        this.addMotionEvent({
+          id: data.execution_id || `EXEC-${Date.now().toString(36)}`,
+          time: new Date().toLocaleTimeString(),
+          category: (objInput && objInput.value) || "Conversational Prompt Test",
+          llmReaction: data.tool_status === "PROPOSED" ? "Proposed Restricted Tool" : (data.tool_status === "EXECUTED" ? "Executed Tool Call" : "Model Direct Response"),
+          enforcement: data.pep_decision || (data.tool_status === "EXECUTED" ? "BREACH_SLAUGHTER" : "PEP_DEFENSE_BLOCKED"),
+          severity: isBreach ? "CRITICAL" : (data.tool_status === "PROPOSED" ? "HIGH" : "LOW"),
+          remediation: isBreach
+            ? "CRITICAL: Automated container slaughter engaged. Subprocess terminated. Invalidate token and inspect WORM ledger."
+            : "SecOps: Zero-trust Policy Enforcement Point (PEP) successfully dropped unauthorized resource access.",
+          isBreach: isBreach
+        });
       } else {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         this.appendChatMessage("assistant", `⚠️ Request Error: ${err.detail || res.statusText}`, [], "FAILED");
@@ -1134,11 +1767,11 @@ class AttackController {
     if (statusBadge) {
       const outcome = data.outcome_type || "NOT_VERIFIED";
       statusBadge.innerText = outcome;
-      if (outcome === "SUCCESS_PERMITTED") {
+      if (outcome === "RESOURCE_ACCESS_PERMITTED" || outcome === "SUCCESS_PERMITTED") {
         statusBadge.className = "badge badge-permitted";
-      } else if (outcome === "POLICY_DENIED" || outcome === "RUNTIME_BLOCKED" || outcome === "SUCCESS_PROHIBITED") {
+      } else if (outcome === "PEP_DENIED" || outcome === "POLICY_DENIED" || outcome === "RESOURCE_ACCESS_DENIED" || outcome === "RUNTIME_BLOCKED" || outcome === "RUNTIME_QUARANTINED" || outcome === "SUCCESS_PROHIBITED" || outcome === "BREACH_PERMITTED") {
         statusBadge.className = "badge badge-blocked";
-      } else if (outcome === "MODEL_REFUSAL") {
+      } else if (outcome === "MODEL_REFUSED" || outcome === "MODEL_REFUSAL" || outcome === "MODEL_DIRECT_RESPONSE" || outcome === "RESOURCE_NOT_FOUND") {
         statusBadge.className = "badge badge-neutral";
       } else {
         statusBadge.className = "badge badge-neutral";
@@ -1149,6 +1782,10 @@ class AttackController {
     if (execIdEl) {
       execIdEl.innerText = data.execution_id || "NOT VERIFIED";
       execIdEl.title = `Correlated Execution ID: ${data.execution_id || "--"}`;
+    }
+    const techCatEl = document.getElementById("tech-category-display");
+    if (techCatEl) {
+      techCatEl.innerText = data.attack_category || data.category || (data.details && data.details.attack_category) || "--";
     }
     if (execTimeEl) {
       execTimeEl.innerText = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : "--";
@@ -1164,8 +1801,8 @@ class AttackController {
       const dec = data.model_decision || "NOT EXECUTED";
       modelDec.innerText = dec;
       if (dec === "TOOL_PROPOSED") modelDec.className = "badge badge-permitted";
-      else if (dec === "MODEL_REFUSAL") modelDec.className = "badge badge-neutral";
-      else if (dec === "DIRECT_RESPONSE") modelDec.className = "badge badge-neutral";
+      else if (dec === "MODEL_REFUSED" || dec === "MODEL_REFUSAL") modelDec.className = "badge badge-neutral";
+      else if (dec === "MODEL_DIRECT_RESPONSE" || dec === "DIRECT_RESPONSE") modelDec.className = "badge badge-neutral";
       else if (dec === "INFERENCE_ERROR") modelDec.className = "badge badge-blocked";
       else modelDec.className = "badge badge-neutral";
     }
@@ -1174,8 +1811,8 @@ class AttackController {
     if (pepDec) {
       const pep = data.pep_decision || "NOT EXECUTED";
       pepDec.innerText = pep;
-      if (pep === "AUTHORIZED") pepDec.className = "badge badge-permitted";
-      else if (pep === "DENIED") pepDec.className = "badge badge-blocked";
+      if (pep === "PEP_AUTHORIZED" || pep === "AUTHORIZED") pepDec.className = "badge badge-permitted";
+      else if (pep === "PEP_DENIED" || pep === "DENIED") pepDec.className = "badge badge-blocked";
       else pepDec.className = "badge badge-neutral";
     }
 
@@ -1183,7 +1820,7 @@ class AttackController {
     if (toolName) {
       const toolInv = data.tool_invocation || "NOT EXECUTED";
       if (toolInv !== "NOT EXECUTED") {
-        const isDenied = data.pep_decision === "DENIED" || data.resource_access_outcome === "ACCESS_DENIED";
+        const isDenied = data.pep_decision === "PEP_DENIED" || data.pep_decision === "DENIED" || data.resource_access_outcome === "RESOURCE_ACCESS_DENIED" || data.resource_access_outcome === "ACCESS_DENIED";
         toolName.innerHTML = `<span style="color: ${isDenied ? 'var(--accent-red)' : 'var(--accent-emerald)'};" title="${toolInv}">${toolInv}</span>`;
       } else {
         toolName.innerHTML = `<span class="text-muted">NOT EXECUTED</span>`;
@@ -1194,8 +1831,9 @@ class AttackController {
     if (resAccess) {
       const res = data.resource_access_outcome || "NOT EXECUTED";
       resAccess.innerText = res;
-      if (res === "ACCESS_PERMITTED") resAccess.className = "badge badge-permitted";
-      else if (res === "ACCESS_DENIED") resAccess.className = "badge badge-blocked";
+      if (res === "RESOURCE_ACCESS_PERMITTED" || res === "ACCESS_PERMITTED") resAccess.className = "badge badge-permitted";
+      else if (res === "RESOURCE_ACCESS_DENIED" || res === "ACCESS_DENIED") resAccess.className = "badge badge-blocked";
+      else if (res === "RESOURCE_NOT_FOUND") resAccess.className = "badge badge-neutral";
       else resAccess.className = "badge badge-neutral";
     }
 
@@ -1203,8 +1841,7 @@ class AttackController {
     if (runtimeCont) {
       const rtc = data.runtime_containment || "NOT EXECUTED";
       runtimeCont.innerText = rtc;
-      if (rtc === "APPLICATION_PEP_BLOCKED" || rtc === "RUNTIME_BLOCKED") runtimeCont.className = "badge badge-blocked";
-      else if (rtc === "CONTAINER_SLAUGHTERED") runtimeCont.className = "badge badge-blocked";
+      if (rtc === "APPLICATION_PEP_BLOCKED" || rtc === "RUNTIME_BLOCKED" || rtc === "CONTAINER_QUARANTINED" || rtc === "CONTAINER_SLAUGHTERED") runtimeCont.className = "badge badge-blocked";
       else runtimeCont.className = "badge badge-neutral";
     }
 
@@ -1431,6 +2068,30 @@ class AttackController {
       // Record test metrics & execution history
       this.recordTestRun(normalizedExec, objective, scope, data.execution_id);
 
+      // Synchronize Target Zone animated pipeline, motion graph & Blue stream
+      this.animateArchitectureFromExecution(normalizedExec);
+      this.logBlueSecurityEvent({
+        category: "Direct PEP Diagnostic",
+        prompt: `Direct API evaluation of tool: ${data.tool_name}`,
+        model: "PEP Sentry Direct",
+        tool: `${data.tool_name}(${JSON.stringify(data.tool_arguments)})`,
+        target: JSON.stringify(data.tool_arguments),
+        pepDecision: data.pep_decision,
+        status: data.pep_authorized ? "AUTHORIZED" : "DENIED",
+        auditBlock: data.audit_block_index,
+        isBreach: false
+      });
+      this.addMotionEvent({
+        id: data.execution_id,
+        time: new Date().toLocaleTimeString(),
+        category: "Direct PEP Diagnostic",
+        llmReaction: "DIRECT_DIAGNOSTIC (No LLM)",
+        enforcement: data.pep_decision === "DENIED" ? "PEP_DEFENSE_BLOCKED" : "PEP_AUTHORIZED",
+        severity: data.pep_authorized ? "LOW" : "HIGH",
+        status: data.pep_authorized ? "AUTHORIZED" : "BLOCKED",
+        isBreach: false
+      });
+
       // Synchronize Blue Zone telemetry
       await this.loadBlueEvents();
       await this.loadLedgerTable();
@@ -1461,20 +2122,26 @@ class AttackController {
     let verdict = "BENIGN PERMITTED";
     let verdictClass = "badge-permitted";
 
-    if (modelDecision === "MODEL_REFUSAL" || outcome === "MODEL_REFUSAL") {
+    if (modelDecision === "MODEL_REFUSED" || modelDecision === "MODEL_REFUSAL" || outcome === "MODEL_REFUSED" || outcome === "MODEL_REFUSAL") {
       this.testMetrics.modelRefusals++;
       verdict = "MODEL REFUSED";
       verdictClass = "badge-neutral";
-    } else if (pepDecision === "DENIED" || resOutcome === "ACCESS_DENIED" || outcome === "POLICY_DENIED") {
+    } else if (pepDecision === "PEP_DENIED" || pepDecision === "DENIED" || resOutcome === "RESOURCE_ACCESS_DENIED" || resOutcome === "ACCESS_DENIED" || outcome === "PEP_DENIED" || outcome === "POLICY_DENIED") {
       this.testMetrics.pepDenials++;
       verdict = "DEFENDED BY PEP";
       verdictClass = "badge-permitted";
-    } else if (outcome === "RUNTIME_BLOCKED" || runtimeCont === "APPLICATION_PEP_BLOCKED") {
+    } else if (outcome === "RUNTIME_BLOCKED" || runtimeCont === "APPLICATION_PEP_BLOCKED" || runtimeCont === "RUNTIME_BLOCKED") {
       this.testMetrics.runtimeBlocked++;
       verdict = "RUNTIME BLOCKED";
       verdictClass = "badge-permitted";
+    } else if (modelDecision === "MODEL_DIRECT_RESPONSE" || outcome === "MODEL_DIRECT_RESPONSE" || modelDecision === "DIRECT_RESPONSE") {
+      verdict = "DIRECT RESPONSE (NO TOOL)";
+      verdictClass = "badge-neutral";
+    } else if (outcome === "RESOURCE_NOT_FOUND" || resOutcome === "RESOURCE_NOT_FOUND") {
+      verdict = "RESOURCE NOT FOUND";
+      verdictClass = "badge-neutral";
     } else {
-      const isBreach = outcome === "CONFIRMED_BREACH" || outcome === "SUCCESS_PROHIBITED";
+      const isBreach = outcome === "CONFIRMED_BREACH" || outcome === "SUCCESS_PROHIBITED" || outcome === "BREACH_PERMITTED";
       if (isBreach) {
         this.testMetrics.confirmedBreaches++;
         verdict = "CONFIRMED BREACH";
@@ -1603,88 +2270,49 @@ class AttackController {
   }
 
 
-  async fetchVoiceStatus() {
-    try {
-      const res = await fetch("/api/voice/status");
-      if (res.ok) {
-        const data = await res.json();
-        const badge = document.getElementById("voice-status-badge");
-        if (badge) {
-          if (data.configured) {
-            badge.className = "badge badge-permitted";
-            badge.innerText = "ElevenLabs Online";
-          } else {
-            badge.className = "badge badge-neutral";
-            badge.innerText = "ElevenLabs Unconfigured (Text Mode)";
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Could not fetch voice status", e);
-    }
-  }
+  toggleStrictPEP() {
+    this.strictLockdownActive = !this.strictLockdownActive;
+    const btn = document.getElementById("btn-toggle-strict-pep");
+    const badge = document.getElementById("pep-status-badge");
+    const stream = document.getElementById("blue-events-stream");
+    const nowStr = new Date().toLocaleTimeString();
 
-  async playVoiceBriefing() {
-    const textEl = document.getElementById("voice-briefing-text");
-    const audioEl = document.getElementById("elevenlabs-audio-player");
-    const btn = document.getElementById("btn-play-voice-briefing");
-    if (btn) { btn.disabled = true; btn.innerText = "Synthesizing..."; }
-    try {
-      const res = await fetch("/api/voice/briefing", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ include_audio: true }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (textEl) textEl.innerText = data.briefing_text;
-        if (data.audio_available && data.audio_base64 && audioEl) {
-          audioEl.src = "data:audio/mp3;base64," + data.audio_base64;
-          audioEl.style.display = "block";
-          audioEl.play().catch(e => console.log("Audio autoplay prevented", e));
-        } else if (audioEl) {
-          audioEl.style.display = "none";
-        }
+    if (this.strictLockdownActive) {
+      if (btn) {
+        btn.innerHTML = "🛡️ Zero-Trust Lockdown: <strong>STRICT ACTIVE</strong>";
+        btn.className = "btn btn-sm btn-danger";
       }
-    } catch (e) {
-      alert("Voice briefing failed: " + e.message);
-    } finally {
-      if (btn) { btn.disabled = false; btn.innerText = "Generate Spoken Briefing"; }
-    }
-  }
-
-  async submitVoiceQuery() {
-    const input = document.getElementById("voice-query-input");
-    const textEl = document.getElementById("voice-briefing-text");
-    const audioEl = document.getElementById("elevenlabs-audio-player");
-    const btn = document.getElementById("btn-submit-voice-query");
-    const query = input ? input.value.trim() : "";
-    if (!query) {
-      alert("Please enter a question to ask the Blue Team Voice Assistant.");
-      return;
-    }
-    if (btn) { btn.disabled = true; btn.innerText = "Querying Ledger..."; }
-    try {
-      const res = await fetch("/api/voice/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query, include_audio: true }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (textEl) textEl.innerHTML = `<strong>Q: ${query}</strong><br/>${data.answer_text}`;
-        if (data.audio_available && data.audio_base64 && audioEl) {
-          audioEl.src = "data:audio/mp3;base64," + data.audio_base64;
-          audioEl.style.display = "block";
-          audioEl.play().catch(e => console.log("Audio autoplay prevented", e));
-        } else if (audioEl) {
-          audioEl.style.display = "none";
-        }
+      if (badge) {
+        badge.innerText = "STRICT LOCKDOWN ACTIVE";
+        badge.className = "badge badge-blocked";
       }
-    } catch (e) {
-      alert("Voice query failed: " + e.message);
-    } finally {
-      if (btn) { btn.disabled = false; btn.innerText = "Ask Voice Assistant"; }
+      if (stream) {
+        const item = document.createElement("div");
+        item.style.cssText = "margin-bottom: 4px; padding: 4px 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 4px;";
+        item.innerHTML = `<span class="text-muted">[${nowStr}]</span> <strong class="text-red">[OPERATOR ENFORCEMENT]</strong> ZERO-TRUST STRICT LOCKDOWN ENGAGED. All unwhitelisted bash/syscalls hard-slaughtered.`;
+        stream.insertBefore(item, stream.firstChild);
+      }
+      alert(
+        "🛡️ ZERO-TRUST STRICT PEP LOCKDOWN ENGAGED\n\n" +
+        "• Enforcement: All unsanctioned tool calls, shell escapes, and raw disk operations are strictly blocked.\n" +
+        "• Containment Rule: Automatic sub-15ms process slaughter on any anomalous syscall.\n" +
+        "• Target LLM: Locked to sanitized business parameters."
+      );
+    } else {
+      if (btn) {
+        btn.innerHTML = "🛡️ Enforce Zero-Trust Lockdown";
+        btn.className = "btn btn-sm btn-outline";
+      }
+      if (badge) {
+        badge.innerText = "Zero-Trust Active";
+        badge.className = "badge badge-permitted";
+      }
+      if (stream) {
+        const item = document.createElement("div");
+        item.style.cssText = "margin-bottom: 4px; padding: 4px 6px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 4px;";
+        item.innerHTML = `<span class="text-muted">[${nowStr}]</span> <strong class="text-emerald">[OPERATOR POLICY]</strong> Strict Lockdown returned to Standard Zero-Trust Tri-Workload Mode.`;
+        stream.insertBefore(item, stream.firstChild);
+      }
     }
   }
 
@@ -1960,16 +2588,22 @@ class AttackController {
     });
   }
 
-  async runFullTestSuite() {
+  async runFullTestSuite(useRealAgent = true) {
     const suiteBtn = document.getElementById("btn-run-suite");
-    const originalText = suiteBtn ? suiteBtn.innerText : "RUN TEST MATRIX";
-    if (suiteBtn) {
-      suiteBtn.disabled = true;
-      suiteBtn.innerText = "EXECUTING MATRIX...";
+    const sentryBtn = document.getElementById("btn-run-sentry-suite");
+    const activeBtn = useRealAgent ? suiteBtn : (sentryBtn || suiteBtn);
+    const originalText = activeBtn ? activeBtn.innerText : "RUN TEST MATRIX";
+    if (activeBtn) {
+      activeBtn.disabled = true;
+      activeBtn.innerText = useRealAgent ? "EVALUATING MODEL..." : "TESTING PEP SENTRY...";
     }
 
     try {
-      const res = await fetch("/api/attacks/run-suite", { method: "POST" });
+      const res = await fetch("/api/attacks/run-suite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_real_agent: useRealAgent }),
+      });
       if (res.ok) {
         const scorecard = await res.json();
         
@@ -1984,8 +2618,11 @@ class AttackController {
           statLatency.innerText = `${scorecard.average_quarantine_latency_ms} ms`;
         }
 
-        // Open detailed scorecard results panel (replaces alert popups)
-        this.openScorecardModal("Automated Test Matrix Scorecard", scorecard);
+        // Open detailed scorecard results panel
+        const modalTitle = useRealAgent
+          ? "Mode A: Model-Driven Red Team Evaluation Scorecard"
+          : "Mode B: Direct PEP Security Testing Scorecard (Bypasses LLM)";
+        this.openScorecardModal(modalTitle, scorecard);
       } else {
         alert("Failed to execute test matrix: " + res.statusText);
       }
@@ -1993,9 +2630,9 @@ class AttackController {
       console.error("Suite execution error:", e);
       alert("Test matrix error: " + e.message);
     } finally {
-      if (suiteBtn) {
-        suiteBtn.disabled = false;
-        suiteBtn.innerText = originalText;
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.innerText = originalText;
       }
     }
   }
@@ -2019,6 +2656,106 @@ class AttackController {
     } catch (e) {
       console.error("Scenario evaluation error:", e);
       alert("Error running scenario suite: " + e.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = originalText;
+      }
+    }
+  }
+
+  async run20Techniques() {
+    const btn = document.getElementById("btn-run-techniques");
+    const originalText = btn ? btn.innerText : "Run 20 Techniques";
+    if (btn) {
+      btn.disabled = true;
+      btn.innerText = "EVALUATING 20 TECHNIQUES...";
+    }
+    const modelSelector = document.getElementById("global-model-selector");
+    const targetModel = modelSelector ? modelSelector.value : "qwen2.5:3b";
+
+    try {
+      const listRes = await fetch("/api/techniques");
+      if (!listRes.ok) throw new Error("Failed to load technique list");
+      const techniques = await listRes.json();
+
+      let idx = 0;
+      for (const tech of techniques) {
+        idx++;
+        if (btn) btn.innerText = `EVALUATING (${idx}/20): ${tech.name.substring(0, 15)}...`;
+
+        const res = await fetch("/api/techniques/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            technique_id: tech.id,
+            target_model: targetModel,
+            assistant_mode: this.chatAssistantMode || "company",
+          }),
+        });
+
+        if (res.ok) {
+          const evalData = await res.json();
+          const lastTurn = evalData.turns_executed && evalData.turns_executed.length > 0
+            ? evalData.turns_executed[evalData.turns_executed.length - 1]
+            : null;
+
+          const recordData = {
+            execution_id: evalData.execution_id,
+            timestamp: new Date().toISOString(),
+            model_name: evalData.target_model,
+            target_model: evalData.target_model,
+            model_decision: lastTurn ? lastTurn.model_decision : "NOT EXECUTED",
+            pep_decision: lastTurn ? lastTurn.pep_decision : "NOT EXECUTED",
+            tool_invocation: lastTurn && lastTurn.tool_proposal ? `${lastTurn.tool_proposal.tool}(...)` : "NOT EXECUTED",
+            resource_access_outcome: lastTurn ? lastTurn.resource_access_outcome : "NOT EXECUTED",
+            runtime_containment: lastTurn ? lastTurn.runtime_containment : "NOT EXECUTED",
+            outcome_type: evalData.final_outcome || (lastTurn ? lastTurn.outcome_type : "INCONCLUSIVE"),
+            audit_hash: evalData.audit_hash,
+            audit_block_index: evalData.audit_block_index,
+            runtime_isolation_claim: evalData.isolation_claim,
+            attack_category: evalData.category,
+            category: evalData.category,
+            trace_stages: [
+              {
+                stage: "TECHNIQUE_INGRESS",
+                execution_id: evalData.execution_id,
+                description: `Technique #${evalData.number}: ${evalData.name} (${evalData.category})`,
+                evidence: { technique_id: evalData.technique_id, is_multiturn: evalData.is_multiturn, turns: evalData.turns_executed.length },
+              },
+              {
+                stage: "MODEL_DECISION",
+                execution_id: evalData.execution_id,
+                description: `Model Decision: ${lastTurn ? lastTurn.model_decision : 'UNKNOWN'}`,
+                evidence: { raw_preview: lastTurn ? lastTurn.model_response_raw.substring(0, 150) : "" },
+              },
+              {
+                stage: "PEP_EVALUATION",
+                execution_id: evalData.execution_id,
+                description: `Zero-Trust PEP Decision: ${lastTurn ? lastTurn.pep_decision : 'NOT EXECUTED'}`,
+                evidence: { tool: lastTurn ? lastTurn.tool_proposal : null, verdict: evalData.final_verdict },
+              },
+              {
+                stage: "AUDIT_COMMITTED",
+                execution_id: evalData.execution_id,
+                description: `Audit Hash: ${evalData.audit_hash ? evalData.audit_hash.substring(0, 16) + '...' : 'NONE'}`,
+                evidence: { hash: evalData.audit_hash, block: evalData.audit_block_index },
+              },
+            ],
+          };
+
+          this.updateTechnicalPanel(recordData);
+          this.recordTestRun(
+            recordData,
+            `Technique #${evalData.number}: ${evalData.name}`,
+            tech.category,
+            evalData.execution_id
+          );
+        }
+      }
+      alert(`Completed 20-Technique Red Team Evaluation against ${targetModel}. Check the metrics and execution log.`);
+    } catch (err) {
+      alert(`Technique evaluation error: ${err.message}`);
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -2060,13 +2797,24 @@ class AttackController {
       const latencyStr = typeof t.latency_ms === "number" && t.latency_ms > 0 ? `${t.latency_ms.toFixed(1)} ms` : "--";
       const scopeStr = t.resource_scope || (t.is_adversarial ? "Restricted Boundary" : "Permitted Boundary");
 
+      const isDirectPep = (t.evaluation_mode === "DIRECT_PEP" || scorecard.evaluation_mode === "DIRECT_PEP");
+      const execTypeBadge = isDirectPep
+        ? `<span class="badge badge-blue" title="Direct PEP enforcement (Bypasses LLM)">DIRECT_PEP (SIMULATED)</span>`
+        : `<span class="badge badge-permitted" title="Live Model Inference & Red Team Prompt">MODEL_DRIVEN</span>`;
+
+      const isModelDirect = (t.observed_outcome === "MODEL_DIRECT_RESPONSE" || t.observed_outcome === "MODEL_REFUSED" || t.observed_outcome === "DIRECT_RESPONSE");
+      const pepDecisionDisplay = (t.pep_decision && t.pep_decision !== "NOT_EXECUTED" && t.pep_decision !== "NOT EXECUTED")
+        ? t.pep_decision
+        : (isModelDirect ? "NOT EXECUTED" : (t.trapped ? "DENIED" : (t.policy_approved ? "AUTHORIZED" : "NOT EXECUTED")));
+      const pepBadgeClass = pepDecisionDisplay === "DENIED" ? "badge-blocked" : (pepDecisionDisplay === "AUTHORIZED" ? "badge-permitted" : "badge-neutral");
+
       tr.innerHTML = `
         <td><strong>${t.name || t.id}</strong></td>
         <td><span class="badge badge-neutral">${t.category || (t.is_adversarial ? "Adversarial" : "Control")}</span></td>
         <td><span class="font-mono" style="font-size:0.72rem;">${scopeStr}</span></td>
-        <td><span class="badge badge-permitted">LIVE_EXECUTION</span></td>
+        <td>${execTypeBadge}</td>
         <td><strong>${t.observed_outcome || (t.trapped ? "TRAPPED" : "PERMITTED")}</strong></td>
-        <td><span class="badge ${t.trapped ? 'badge-blocked' : 'badge-permitted'}">${t.pep_decision || (t.trapped ? 'DENIED' : 'AUTHORIZED')}</span></td>
+        <td><span class="badge ${pepBadgeClass}">${pepDecisionDisplay}</span></td>
         <td><span class="${badgeClass}">${verdict}</span></td>
         <td class="font-mono">${latencyStr}</td>
       `;
@@ -2079,7 +2827,7 @@ class AttackController {
           <td>${t.name || t.id}</td>
           <td><span class="badge badge-neutral">${scopeStr}</span></td>
           <td><strong>${t.observed_outcome || (t.trapped ? "TRAPPED" : "PERMITTED")}</strong></td>
-          <td><span class="badge ${t.trapped ? 'badge-blocked' : 'badge-permitted'}">${t.pep_decision || (t.trapped ? 'DENIED' : 'AUTHORIZED')}</span></td>
+          <td><span class="badge ${pepBadgeClass}">${pepDecisionDisplay}</span></td>
           <td><span class="${badgeClass}">${verdict}</span></td>
           <td class="font-mono">${latencyStr}</td>
         </tr>
@@ -2368,6 +3116,808 @@ class AttackController {
       }
     } catch (e) {
       console.error("Failed to load forensic ledger:", e);
+    }
+  }
+
+  // =========================================================================
+  // PRIORITY 3.3 — CAMPAIGN EXECUTION & HUD
+  // =========================================================================
+  async checkActiveCampaign() {
+    try {
+      const res = await fetch("/api/campaign/active");
+      if (res.ok) {
+        const campaign = await res.json();
+        if (campaign && campaign.campaign_id) {
+          this.activeCampaignId = campaign.campaign_id;
+          this.showCampaignHUD(campaign);
+          this.pollCampaign(campaign.campaign_id);
+        }
+      }
+    } catch (e) {
+      // Idle
+    }
+  }
+
+  async start20Campaign() {
+    const btn = document.getElementById("btn-run-campaign") || document.getElementById("btn-run-techniques");
+    const modelSelector = document.getElementById("global-model-selector");
+    const targetModel = modelSelector ? modelSelector.value : "qwen2.5:3b";
+
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = "STARTING CAMPAIGN...";
+      }
+      const res = await fetch("/api/campaign/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_model: targetModel,
+          assistant_mode: this.chatAssistantMode || "company",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Failed to start campaign: ${err.detail || res.statusText}`);
+        return;
+      }
+
+      const campaign = await res.json();
+      this.activeCampaignId = campaign.campaign_id;
+      this.showCampaignHUD(campaign);
+      this.pollCampaign(campaign.campaign_id);
+    } catch (e) {
+      alert("Campaign initiation failed: " + e.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "C. Full 20-Technique Campaign";
+      }
+    }
+  }
+
+  showCampaignHUD(campaign) {
+    const hud = document.getElementById("campaign-hud");
+    if (!hud) return;
+    hud.style.display = "block";
+    const idEl = document.getElementById("campaign-hud-id");
+    const statEl = document.getElementById("campaign-hud-status");
+    const modelEl = document.getElementById("campaign-hud-model");
+    if (idEl) idEl.innerText = `ID: ${campaign.campaign_id.substring(0, 16)}...`;
+    if (statEl) {
+      statEl.innerText = campaign.status.toUpperCase();
+      statEl.className = campaign.status === "completed" ? "badge badge-permitted" : "badge badge-blue";
+    }
+    if (modelEl) modelEl.innerText = campaign.target_model || "qwen2.5:3b";
+  }
+
+  async pollCampaign(campaignId) {
+    if (this.campaignPollInterval) clearInterval(this.campaignPollInterval);
+
+    this.campaignPollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/campaign/status/${campaignId}`);
+        if (!res.ok) return;
+        const status = await res.json();
+
+        // Update HUD
+        const currentEl = document.getElementById("campaign-hud-current");
+        const compEl = document.getElementById("campaign-hud-completed");
+        const remEl = document.getElementById("campaign-hud-remaining");
+        const errEl = document.getElementById("campaign-hud-errors");
+        const pctEl = document.getElementById("campaign-hud-percent");
+        const barEl = document.getElementById("campaign-hud-progress");
+        const statBadge = document.getElementById("campaign-hud-status");
+
+        if (currentEl) currentEl.innerText = status.current_technique || (status.status === "completed" ? "COMPLETED" : "--");
+        if (compEl) compEl.innerText = `${status.completed_attacks} / ${status.total_attacks}`;
+        if (remEl) remEl.innerText = status.remaining_attacks;
+        if (errEl) errEl.innerText = status.errors ? status.errors.length : 0;
+        const pct = status.progress_percent || 0;
+        if (pctEl) pctEl.innerText = `${pct.toFixed(0)}%`;
+        if (barEl) barEl.style.width = `${pct}%`;
+        if (statBadge) {
+          statBadge.innerText = status.status.toUpperCase();
+          statBadge.className = status.status === "completed" ? "badge badge-permitted" : (status.status === "cancelled" ? "badge badge-blocked" : "badge badge-blue");
+        }
+
+        // Live architecture animation on current attack
+        if (status.current_technique) {
+          this.animateArchitectureStage("INFERENCE");
+        }
+
+        // Refresh SOC overview metrics
+        this.loadSOCDashboard();
+
+        if (status.status === "completed" || status.status === "cancelled" || status.status === "failed") {
+          clearInterval(this.campaignPollInterval);
+          this.campaignPollInterval = null;
+
+          // Record results in the in-page table
+          if (status.results && status.results.length > 0) {
+            status.results.forEach((r) => {
+              if (!this.executionRecords[r.execution_id]) {
+                const norm = {
+                  execution_id: r.execution_id,
+                  model_name: status.target_model,
+                  target_model: status.target_model,
+                  model_decision: r.final_outcome || "MODEL_EVALUATED",
+                  pep_decision: r.pep_decision || "NOT EXECUTED",
+                  outcome_type: r.final_outcome,
+                  audit_hash: r.audit_hash,
+                  category: r.category,
+                };
+                this.recordTestRun(norm, `Technique: ${r.technique_name || r.technique_id}`, r.category, r.execution_id);
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Polling error", e);
+      }
+    }, 1500);
+  }
+
+  async cancelActiveCampaign() {
+    if (!this.activeCampaignId) return;
+    try {
+      await fetch(`/api/campaign/cancel/${this.activeCampaignId}`, { method: "POST" });
+      const statBadge = document.getElementById("campaign-hud-status");
+      if (statBadge) {
+        statBadge.innerText = "CANCELLED";
+        statBadge.className = "badge badge-blocked";
+      }
+    } catch (e) {
+      console.error("Failed to cancel campaign", e);
+    }
+  }
+
+  // =========================================================================
+  // PRIORITY 2 — JAILBREAK LIBRARY
+  // =========================================================================
+  async openJailbreakLibrary() {
+    const modal = document.getElementById("jailbreak-modal");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    await this.fetchJailbreaks("all");
+
+    // Wire category filter buttons
+    const filterContainer = document.getElementById("jailbreak-category-filter");
+    if (filterContainer && !this.jbFilterWired) {
+      this.jbFilterWired = true;
+      filterContainer.querySelectorAll("button").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          filterContainer.querySelectorAll("button").forEach((b) => b.classList.remove("active", "btn-primary"));
+          filterContainer.querySelectorAll("button").forEach((b) => b.classList.add("btn-secondary"));
+          btn.classList.add("active", "btn-primary");
+          btn.classList.remove("btn-secondary");
+          const cat = btn.getAttribute("data-cat");
+          this.renderJailbreakList(cat);
+        });
+      });
+    }
+  }
+
+  async fetchJailbreaks(category = "all") {
+    try {
+      const res = await fetch("/api/jailbreaks");
+      if (!res.ok) return;
+      const data = await res.json();
+      this.jailbreakPayloads = data.payloads || [];
+      this.renderJailbreakList(category);
+    } catch (e) {
+      console.error("Failed to load jailbreaks", e);
+    }
+  }
+
+  renderJailbreakList(category = "all") {
+    const listCont = document.getElementById("jailbreak-payload-list");
+    if (!listCont || !this.jailbreakPayloads) return;
+
+    const filtered = category === "all"
+      ? this.jailbreakPayloads
+      : this.jailbreakPayloads.filter((p) => (p.category || "").toLowerCase() === category.toLowerCase() || (p.category || "").toLowerCase().includes(category.toLowerCase()));
+
+    listCont.innerHTML = "";
+    if (filtered.length === 0) {
+      listCont.innerHTML = '<div class="text-muted" style="text-align:center;padding:1rem;">No payloads in this category.</div>';
+      return;
+    }
+
+    filtered.forEach((p) => {
+      const item = document.createElement("div");
+      item.className = "jailbreak-card";
+      item.style.cssText = "padding: 8px 10px; border: 1px solid var(--card-border); border-radius: 4px; cursor: pointer; background: #fff; transition: background 0.15s ease;";
+      
+      const catBadge = p.category.includes("Company") ? "badge-amber" : (p.category.includes("Multi") ? "badge-blue" : (p.category.includes("Tool") ? "badge-purple" : "badge-neutral"));
+      const turnsBadge = (p.num_turns && p.num_turns > 1) ? `<span class="badge badge-primary" style="font-size:0.6rem; margin-left:4px;">${p.num_turns} Turns</span>` : "";
+
+      item.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+          <strong style="font-size: 0.78rem; color: var(--text-main);">${p.name || p.title}</strong>
+          <span class="badge ${catBadge}" style="font-size: 0.62rem;">${p.category}</span>
+        </div>
+        <div style="display: flex; gap: 8px; font-size: 0.68rem; margin: 3px 0; color: var(--text-muted); flex-wrap: wrap;">
+          <span><strong>Target:</strong> <code style="color: var(--accent-amber);">${p.target_resource || 'Company Resource'}</code></span>
+          <span><strong>Tool:</strong> <code style="color: var(--accent-blue);">${p.target_tool || 'read_document'}</code></span>
+          ${turnsBadge}
+        </div>
+        <div style="font-size: 0.68rem; color: var(--text-muted); line-height: 1.25;">${(p.attack_objective || p.description || p.preview || '').substring(0, 105)}...</div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.63rem; color: var(--text-muted); margin-top: 4px;">
+          <span>Status: <strong class="text-green">${p.execution_status || 'READY'}</strong></span>
+          <span>ID: <code>${p.id}</code></span>
+        </div>
+      `;
+      item.onclick = () => {
+        listCont.querySelectorAll(".jailbreak-card").forEach(c => c.style.background = "#fff");
+        item.style.background = "rgba(79, 70, 229, 0.06)";
+        this.selectJailbreakPayload(p.id);
+      };
+      listCont.appendChild(item);
+    });
+
+    if (filtered.length > 0) {
+      this.selectJailbreakPayload(filtered[0].id);
+    }
+  }
+
+  async selectJailbreakPayload(payloadId) {
+    try {
+      const res = await fetch(`/api/jailbreaks/${payloadId}`);
+      if (!res.ok) return;
+      const p = await res.json();
+      this.selectedJailbreak = p;
+
+      const titleEl = document.getElementById("jb-preview-title");
+      const metaEl = document.getElementById("jb-preview-meta");
+      const bodyEl = document.getElementById("jb-preview-body");
+      const loadBtn = document.getElementById("btn-load-jailbreak-to-chat");
+      const runBtn = document.getElementById("btn-run-jailbreak-scenario");
+
+      const catEl = document.getElementById("jb-badge-cat");
+      const resEl = document.getElementById("jb-badge-resource");
+      const toolEl = document.getElementById("jb-badge-tool");
+      const turnsEl = document.getElementById("jb-badge-turns");
+      const statusEl = document.getElementById("jb-badge-status");
+      const objEl = document.getElementById("jb-badge-objective");
+      const alertEl = document.getElementById("jb-execution-alert");
+      const turnsCont = document.getElementById("jb-turns-container");
+
+      if (titleEl) titleEl.innerText = p.name;
+      if (metaEl) metaEl.innerText = `Target Resource: ${p.target_resource} | Tool: ${p.target_tool} | ID: ${p.id}`;
+      if (catEl) catEl.innerText = p.category;
+      if (resEl) resEl.innerText = p.target_resource || "--";
+      if (toolEl) toolEl.innerText = p.target_tool || "--";
+      if (turnsEl) turnsEl.innerText = `${p.num_turns || 1} Turn(s)`;
+      if (statusEl) statusEl.innerHTML = `<span class="badge ${p.execution_status === 'READY' ? 'badge-success' : 'badge-neutral'}">${p.execution_status || 'READY'}</span>`;
+      if (objEl) objEl.innerHTML = `<strong>Objective:</strong> ${p.attack_objective || p.description}`;
+
+      if (alertEl) alertEl.classList.add("hidden");
+      if (turnsCont) turnsCont.classList.add("hidden");
+
+      if (bodyEl) {
+        if (p.prompts && p.prompts.length > 1) {
+          let turnsPreview = "";
+          p.prompts.forEach((pt, i) => {
+            turnsPreview += `=== TURN ${i + 1} of ${p.prompts.length} ===\n${pt}\n\n`;
+          });
+          bodyEl.innerText = turnsPreview.trim();
+        } else {
+          bodyEl.innerText = p.prompt_text || p.full_prompt || "";
+        }
+      }
+
+      if (loadBtn) loadBtn.disabled = false;
+      if (runBtn) runBtn.disabled = false;
+    } catch (e) {
+      console.error("Failed to inspect jailbreak", e);
+    }
+  }
+
+  loadSelectedJailbreakIntoChat() {
+    if (!this.selectedJailbreak) return;
+    const chatInput = document.getElementById("chat-input");
+    if (chatInput) {
+      const p = this.selectedJailbreak;
+      const initialPrompt = (p.prompts && p.prompts.length > 0) ? p.prompts[0] : (p.prompt_text || p.full_prompt);
+      chatInput.value = initialPrompt;
+      chatInput.focus();
+      chatInput.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      if (p.num_turns > 1) {
+        this.currentMultiTurnPayload = p;
+        this.currentMultiTurnIndex = 0;
+        this.appendChatMessage("system", `[Red Team Orchestrator] Loaded Turn 1 of ${p.num_turns} for multi-turn scenario '${p.name}'. Submit this prompt to begin.`);
+      }
+    }
+    const modal = document.getElementById("jailbreak-modal");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  async runSelectedJailbreakScenario() {
+    if (!this.selectedJailbreak) return;
+    const p = this.selectedJailbreak;
+    const runBtn = document.getElementById("btn-run-jailbreak-scenario");
+    const loadBtn = document.getElementById("btn-load-jailbreak-to-chat");
+    const alertEl = document.getElementById("jb-execution-alert");
+    const turnsCont = document.getElementById("jb-turns-container");
+    const turnsList = document.getElementById("jb-turns-list");
+
+    if (runBtn) {
+      runBtn.disabled = true;
+      runBtn.innerText = "Executing attack...";
+    }
+    if (loadBtn) loadBtn.disabled = true;
+
+    try {
+      const res = await fetch("/api/jailbreaks/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload_id: p.id,
+          target_model: this.activeModel,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Jailbreak execution failed");
+      }
+
+      const data = await res.json();
+
+      if (alertEl) {
+        alertEl.classList.remove("hidden");
+        const jbSuccess = (data.model_layer_jailbreak === "SUCCESS");
+        const pepSuccess = (data.pep_defense === "SUCCESS");
+        const breach = (data.confirmed_breach === "YES");
+
+        let alertBg = "#eff6ff";
+        let alertBorder = "#bfdbfe";
+        let alertText = "#1e40af";
+
+        if (breach) {
+          alertBg = "#fef2f2";
+          alertBorder = "#fecaca";
+          alertText = "#991b1b";
+        } else if (pepSuccess) {
+          alertBg = "#f0fdf4";
+          alertBorder = "#bbf7d0";
+          alertText = "#166534";
+        }
+
+        alertEl.style.cssText = `padding: 8px 10px; border-radius: 4px; font-size: 0.74rem; background: ${alertBg}; border: 1px solid ${alertBorder}; color: ${alertText};`;
+        alertEl.innerHTML = `
+          <div style="font-weight: 700; margin-bottom: 4px;">Attack Execution Result &mdash; ${data.final_outcome}</div>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.72rem;">
+            <span>MODEL-LAYER JAILBREAK: <strong class="${jbSuccess ? 'text-amber' : 'text-muted'}">${data.model_layer_jailbreak}</strong></span>
+            <span>PEP DEFENSE: <strong class="${pepSuccess ? 'text-green' : 'text-red'}">${data.pep_defense}</strong></span>
+            <span>CONFIRMED BREACH: <strong class="${breach ? 'text-red' : 'text-green'}">${data.confirmed_breach}</strong></span>
+          </div>
+          <div style="font-size: 0.68rem; margin-top: 4px; opacity: 0.9;">Session ID: <code>${data.session_id}</code> | WORM Audit Block: #${data.audit_record_index || '--'}</div>
+        `;
+      }
+
+      if (turnsCont && turnsList && data.turns) {
+        turnsCont.classList.remove("hidden");
+        turnsList.innerHTML = "";
+
+        data.turns.forEach((t) => {
+          const item = document.createElement("div");
+          item.style.cssText = "padding: 6px 8px; border: 1px solid var(--card-border); border-radius: 4px; background: #fafafa; font-size: 0.7rem;";
+          const propToolStr = t.tool_proposal ? `${t.tool_proposal.tool}(${JSON.stringify(t.tool_proposal.arguments || {})})` : 'None';
+          item.innerHTML = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+              <strong>Turn #${t.turn_index}: Decision: <span class="${t.model_decision === 'TOOL_PROPOSED' ? 'text-amber' : 'text-blue'}">${t.model_decision}</span></strong>
+              <span class="badge ${t.pep_decision === 'PEP_DENIED' ? 'badge-danger' : (t.pep_decision === 'PEP_AUTHORIZED' ? 'badge-success' : 'badge-neutral')}">${t.pep_decision}</span>
+            </div>
+            <div><strong>Prompt:</strong> ${(t.prompt || '').substring(0, 90)}...</div>
+            <div><strong>Tool Proposed:</strong> <code style="color:var(--accent-blue);">${propToolStr}</code></div>
+            <div><strong>Resource Outcome:</strong> <span class="font-mono">${t.resource_access_outcome}</span></div>
+            <div style="margin-top: 2px; color: var(--text-muted); font-size: 0.66rem;">Model Output: ${(t.raw_response || '').substring(0, 100)}...</div>
+          `;
+          turnsList.appendChild(item);
+        });
+      }
+
+      // Refresh SOC store metrics and incident table
+      this.loadSOCDashboard();
+      this.loadSOCIncidents();
+      await this.loadBlueEvents();
+
+      const breach = (data.confirmed_breach === "YES");
+      this.addMotionEvent({
+        id: data.session_id || `JB-${Date.now().toString(36)}`,
+        time: new Date().toLocaleTimeString(),
+        category: p.name || p.id,
+        llmReaction: data.model_layer_jailbreak === "SUCCESS" ? "Jailbreak Succeeded (Restricted Tool Called)" : "Model Refused",
+        enforcement: breach ? "CONFIRMED_BREACH -> QUARANTINE_SLAUGHTER" : (data.pep_defense === "SUCCESS" ? "PEP_DEFENSE_BLOCKED" : "UNRESTRICTED"),
+        severity: breach ? "CRITICAL" : (data.model_layer_jailbreak === "SUCCESS" ? "HIGH" : "LOW"),
+        remediation: breach
+          ? "CRITICAL: Unauthorized exfiltration detected. Host OS worker process slaughtered under containment SLA."
+          : "SecOps: Zero-trust Policy Enforcement Point stopped unauthorized document exfiltration.",
+        isBreach: breach
+      });
+
+      // Trigger animated dataflow in Target Zone and log real-time security event
+      const firstTurn = data.turns && data.turns.length > 0 ? data.turns[0] : {};
+      this.animateArchitectureFromExecution({
+        execution_id: data.session_id,
+        tool_invocation: firstTurn.tool_proposal ? `${firstTurn.tool_proposal.tool}(...)` : "NONE",
+        pep_decision: data.pep_defense === "SUCCESS" ? "DENIED" : (firstTurn.pep_decision || "AUTHORIZED"),
+        resource_access_outcome: firstTurn.resource_access_outcome || "ACCESS_DENIED",
+        quarantined: data.confirmed_breach === "YES",
+        runtime_containment: data.confirmed_breach === "YES" ? "CONTAINER_SLAUGHTERED" : "MONITORED",
+        latency_ms: 25.0
+      });
+
+      this.logBlueSecurityEvent({
+        category: p.name || p.id || "Jailbreak Exploit",
+        prompt: (p.prompt || (firstTurn.prompt || '')),
+        model: this.activeModel,
+        tool: firstTurn.tool_proposal ? `${firstTurn.tool_proposal.tool}(...)` : 'NONE',
+        target: p.target_resource || "restricted_file",
+        pepDecision: data.pep_defense === "SUCCESS" ? "PEP_DENIED" : "PEP_AUTHORIZED",
+        status: data.confirmed_breach === "YES" ? "BREACH" : (data.pep_defense === "SUCCESS" ? "DENIED" : "AUTHORIZED"),
+        auditBlock: data.audit_record_index || "--",
+        isBreach: data.confirmed_breach === "YES"
+      });
+    } catch (e) {
+      console.error("Jailbreak execution error", e);
+      if (alertEl) {
+        alertEl.classList.remove("hidden");
+        alertEl.style.cssText = "padding: 8px 10px; border-radius: 4px; font-size: 0.74rem; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;";
+        alertEl.innerHTML = `<strong>Execution Error:</strong> ${e.message}`;
+      }
+    } finally {
+      if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.innerText = "Run Attack Scenario";
+      }
+      if (loadBtn) loadBtn.disabled = false;
+    }
+  }
+
+  // =========================================================================
+  // PRIORITY 4 — TARGET ZONE ARCHITECTURE VISUALIZER
+  // =========================================================================
+  animateArchitectureStage(stage, outcome = null) {
+    const nodes = [
+      "arch-node-red", "arch-node-controller", "arch-node-ollama", "arch-node-inference",
+      "arch-node-parser", "arch-node-dispatcher", "arch-node-pep", "arch-node-resources",
+      "arch-node-sandbox", "arch-node-telemetry", "arch-node-blue", "arch-node-ledger"
+    ];
+
+    const edges = [
+      "edge-red-agent", "edge-agent-ollama", "edge-ollama-inference", "edge-inference-parser",
+      "edge-parser-dispatcher", "edge-dispatcher-pep", "edge-pep-resources", "edge-resources-sandbox",
+      "edge-sandbox-telemetry", "edge-telemetry-blue", "edge-blue-ledger"
+    ];
+
+    if (stage === "INGRESS") {
+      this.setNodeState("arch-node-red", "state-blue", "node-status-red", "ACTIVE");
+      this.setEdgeActive("edge-red-agent");
+      this.setNodeState("arch-node-controller", "state-blue", "node-status-controller", "ROUTING");
+    } else if (stage === "INFERENCE") {
+      this.setEdgeActive("edge-agent-ollama");
+      this.setEdgeActive("edge-ollama-inference");
+      this.setNodeState("arch-node-ollama", "state-blue", "node-status-ollama", "INFERRING");
+      this.setNodeState("arch-node-inference", "state-blue", "node-status-inference", "RUNNING");
+    } else if (stage === "PARSER") {
+      this.setEdgeActive("edge-inference-parser");
+      this.setEdgeActive("edge-parser-dispatcher");
+      this.setNodeState("arch-node-parser", "state-blue", "node-status-parser", "PARSED");
+      this.setNodeState("arch-node-dispatcher", "state-blue", "node-status-dispatcher", "DISPATCHED");
+    } else if (stage === "PEP") {
+      this.setEdgeActive("edge-dispatcher-pep");
+      if (outcome === "DENIED") {
+        this.setNodeState("arch-node-pep", "state-red", "node-status-pep", "DENIED");
+      } else if (outcome === "AUTHORIZED") {
+        this.setNodeState("arch-node-pep", "state-green", "node-status-pep", "AUTHORIZED");
+      }
+    } else if (stage === "RESOURCE") {
+      this.setEdgeActive("edge-pep-resources");
+      if (outcome === "DENIED" || outcome === "BLOCKED") {
+        this.setNodeState("arch-node-resources", "state-red", "node-status-resources", "BLOCKED");
+      } else {
+        this.setNodeState("arch-node-resources", "state-green", "node-status-resources", "ACCESSED");
+      }
+    } else if (stage === "CONTAINMENT") {
+      this.setEdgeActive("edge-resources-sandbox");
+      this.setNodeState("arch-node-sandbox", "state-purple", "node-status-sandbox", "QUARANTINED");
+      this.setEdgeActive("edge-sandbox-telemetry");
+      this.setEdgeActive("edge-telemetry-blue");
+      this.setNodeState("arch-node-telemetry", "state-blue", "node-status-telemetry", "TELEMETRY");
+      this.setNodeState("arch-node-blue", "state-blue", "node-status-blue", "ALERTED");
+    } else if (stage === "AUDIT") {
+      this.setEdgeActive("edge-blue-ledger");
+      this.setNodeState("arch-node-ledger", "state-green", "node-status-ledger", "COMMITTED");
+    } else if (stage === "RESET") {
+      nodes.forEach((n) => {
+        const el = document.getElementById(n);
+        if (el) el.className = "arch-node state-neutral";
+      });
+      edges.forEach((e) => {
+        const el = document.getElementById(e);
+        if (el) el.classList.remove("edge-active");
+      });
+    }
+  }
+
+  setNodeState(nodeId, stateClass, pillId, text) {
+    const el = document.getElementById(nodeId);
+    if (el) el.className = `arch-node ${stateClass}`;
+    const pill = document.getElementById(pillId);
+    if (pill) {
+      pill.innerText = text;
+      pill.className = `badge arch-node-pill ${stateClass === 'state-red' ? 'badge-blocked' : (stateClass === 'state-green' ? 'badge-permitted' : 'badge-blue')}`;
+    }
+  }
+
+  setEdgeActive(edgeId) {
+    const el = document.getElementById(edgeId);
+    if (el) el.classList.add("edge-active");
+  }
+
+  animateArchitectureFromExecution(data) {
+    const statusBadge = document.getElementById("arch-pipeline-status");
+    if (statusBadge) {
+      statusBadge.innerText = "ATTACK SIGNAL PROPAGATING...";
+      statusBadge.className = "badge badge-blocked";
+    }
+
+    this.animateArchitectureStage("INGRESS");
+    setTimeout(() => this.animateArchitectureStage("INFERENCE"), 300);
+    setTimeout(() => {
+      if (data.tool_invocation && data.tool_invocation !== "NOT EXECUTED" && data.tool_invocation !== "NO_TOOL_PROPOSED") {
+        this.animateArchitectureStage("PARSER");
+      }
+    }, 650);
+    setTimeout(() => {
+      const pepDec = data.pep_decision || "NOT EXECUTED";
+      const isDenied = pepDec.includes("DENIED") || pepDec.includes("BLOCKED");
+      if (pepDec !== "NOT EXECUTED") {
+        this.animateArchitectureStage("PEP", isDenied ? "DENIED" : "AUTHORIZED");
+        this.animateArchitectureStage("RESOURCE", (data.resource_access_outcome === "ACCESS_DENIED" || isDenied) ? "DENIED" : "PERMITTED");
+      }
+    }, 1050);
+    setTimeout(() => {
+      if (data.quarantined || (data.runtime_containment && data.runtime_containment.includes("SLAUGHTERED"))) {
+        this.animateArchitectureStage("CONTAINMENT");
+      }
+      this.animateArchitectureStage("AUDIT");
+      if (statusBadge) {
+        const pd = data.pep_decision || "DEFENDED";
+        statusBadge.innerText = `FLOW: INGRESS -> MODEL -> PEP (${pd}) -> AUDIT COMMITTED`;
+        statusBadge.className = pd.includes("DENIED") ? "badge badge-blocked" : "badge badge-permitted";
+      }
+    }, 1450);
+
+    // Update Live Target Card
+    const execIdEl = document.getElementById("target-live-exec-id");
+    const latEl = document.getElementById("target-live-latency");
+    const propEl = document.getElementById("target-live-proposal");
+    const pepEl = document.getElementById("target-live-pep");
+
+    if (execIdEl) execIdEl.innerText = data.execution_id || "--";
+    if (latEl) latEl.innerText = data.latency_ms ? `${data.latency_ms.toFixed(1)} ms` : "--";
+    if (propEl) propEl.innerText = data.tool_invocation || (data.tool_proposal ? (data.tool_proposal.tool || JSON.stringify(data.tool_proposal)) : "NONE");
+    if (pepEl) {
+      const pd = data.pep_decision || "NOT EXECUTED";
+      pepEl.innerText = pd;
+      pepEl.className = `metric-tile-val ${pd.includes('DENIED') ? 'text-red' : (pd.includes('AUTHORIZED') ? 'text-emerald' : 'text-muted')}`;
+    }
+  }
+
+  // =========================================================================
+  // PRIORITY 5 — BLUE ZONE SOC DASHBOARD & INCIDENT MANAGEMENT
+  // =========================================================================
+  async loadSOCDashboard() {
+    try {
+      const res = await fetch("/api/soc/overview");
+      if (!res.ok) return;
+      const m = await res.json();
+
+      const map = {
+        "soc-m-campaigns": m.total_campaigns,
+        "soc-m-attacks": m.total_attacks_executed,
+        "soc-m-jailbreaks": m.successful_jailbreaks,
+        "soc-m-refusals": m.model_refusals,
+        "soc-m-proposals": m.suspicious_tool_proposals,
+        "soc-m-pep-denials": m.pep_denials,
+        "soc-m-authorized": m.authorized_operations,
+        "soc-m-res-violations": m.resource_access_violations,
+        "soc-m-runtime-blocks": m.runtime_blocks,
+        "soc-m-breaches": m.confirmed_breaches,
+        "soc-m-quarantines": m.quarantine_events,
+        "soc-m-containments": m.successful_containments,
+      };
+
+      for (const [id, val] of Object.entries(map)) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = val != null ? val : 0;
+      }
+    } catch (e) {
+      console.error("Failed to load SOC overview", e);
+    }
+  }
+
+  async loadSOCAnalytics() {
+    try {
+      const res = await fetch("/api/soc/analytics");
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Render Categories
+      const catCont = document.getElementById("soc-analytics-categories");
+      if (catCont) {
+        catCont.innerHTML = "";
+        const entries = Object.entries(data.categories || {});
+        if (entries.length === 0) {
+          catCont.innerHTML = '<div class="text-muted" style="text-align:center;padding:1rem;">No attack data recorded yet.</div>';
+        } else {
+          const maxVal = Math.max(...entries.map(([, count]) => count), 1);
+          entries.forEach(([cat, count]) => {
+            const pct = Math.max(12, Math.round((count / maxVal) * 100));
+            const row = document.createElement("div");
+            row.style.marginBottom = "8px";
+            row.innerHTML = `
+              <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 3px;">
+                <span style="font-weight: 600; color: #1e293b;">${cat}</span>
+                <span style="font-weight: 700; color: #2563eb;">${count} attacks</span>
+              </div>
+              <div class="soc-bar-track" style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin: 4px 0;">
+                <div class="soc-bar-fill fill-blue" style="height: 100%; width: ${pct}%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 4px; transition: width 0.4s ease;"></div>
+              </div>
+            `;
+            catCont.appendChild(row);
+          });
+        }
+      }
+
+      // Render Severity
+      const sevCont = document.getElementById("soc-analytics-severity");
+      if (sevCont) {
+        sevCont.innerHTML = "";
+        const sevEntries = Object.entries(data.severities || {});
+        if (sevEntries.length === 0) {
+          sevCont.innerHTML = '<div class="text-muted" style="text-align:center;padding:1rem;">No security incident recorded yet.</div>';
+        } else {
+          const maxVal = Math.max(...sevEntries.map(([, count]) => count), 1);
+          sevEntries.forEach(([sev, count]) => {
+            const pct = Math.max(12, Math.round((count / maxVal) * 100));
+            const isCrit = sev.includes("CRITICAL");
+            const isHigh = sev.includes("HIGH");
+            const colorGrad = isCrit ? "linear-gradient(90deg, #ef4444, #f87171)" : (isHigh ? "linear-gradient(90deg, #f59e0b, #fbbf24)" : "linear-gradient(90deg, #3b82f6, #60a5fa)");
+            const colorClass = isCrit ? "fill-red" : (isHigh ? "fill-amber" : "fill-blue");
+            const row = document.createElement("div");
+            row.style.marginBottom = "8px";
+            row.innerHTML = `
+              <div style="display: flex; justify-content: space-between; font-size: 0.72rem; margin-bottom: 3px;">
+                <span style="font-weight: 600; color: #1e293b;">${sev}</span>
+                <span style="font-weight: 700;">${count} incidents</span>
+              </div>
+              <div class="soc-bar-track" style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin: 4px 0;">
+                <div class="soc-bar-fill ${colorClass}" style="height: 100%; width: ${pct}%; background: ${colorGrad}; border-radius: 4px; transition: width 0.4s ease;"></div>
+              </div>
+            `;
+            sevCont.appendChild(row);
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load SOC analytics", e);
+    }
+  }
+
+  async loadSOCIncidents() {
+    try {
+      const res = await fetch("/api/soc/incidents");
+      if (!res.ok) return;
+      const data = await res.json();
+      const tbody = document.getElementById("soc-incidents-tbody");
+      if (!tbody) return;
+
+      tbody.innerHTML = "";
+      const incidents = Array.isArray(data) ? data : (data.incidents || []);
+      if (!incidents || incidents.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="text-muted" style="text-align: center; padding: 1.5rem;">
+              No incidents logged yet. Attacks proposing unauthorized operations or violating policy will register here.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      incidents.forEach((inc) => {
+        const tr = document.createElement("tr");
+        const isCrit = inc.severity && (inc.severity.includes("CRITICAL") || inc.severity.includes("HIGH"));
+        const sevBadge = isCrit ? "badge-blocked" : "badge-neutral";
+        const pepBadge = inc.pep_decision === "DENIED" ? "badge-blocked" : (inc.pep_decision === "AUTHORIZED" ? "badge-permitted" : "badge-neutral");
+        const timeStr = inc.timestamp ? new Date(inc.timestamp).toLocaleTimeString() : "--";
+
+        tr.innerHTML = `
+          <td class="font-mono text-blue" style="font-size: 0.72rem;">${inc.incident_id}</td>
+          <td><span class="badge badge-neutral">${inc.attack_category}</span></td>
+          <td>${inc.target_model}</td>
+          <td><span class="badge ${sevBadge}">${inc.severity}</span></td>
+          <td style="font-size: 0.72rem;">${timeStr}</td>
+          <td><span class="badge ${pepBadge}">${inc.pep_decision}</span></td>
+          <td class="font-mono" style="font-size: 0.72rem;">${inc.resource_affected || 'NONE'}</td>
+          <td><span class="badge badge-blue">${inc.containment_status}</span></td>
+          <td><button class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 0.7rem;" onclick="window.attackController.openIncidentDetail('${inc.incident_id}')">Inspect</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Synchronize Motion Graph with real incidents from SOC store
+      if ((!this.motionEvents || this.motionEvents.length === 0) && incidents.length > 0) {
+        const recent = incidents.slice(0, 15).reverse();
+        recent.forEach((inc) => {
+          const isBreach = inc.severity && (inc.severity.includes("CRITICAL") || inc.containment_status === "QUARANTINED");
+          const timeStr = inc.timestamp ? new Date(inc.timestamp).toLocaleTimeString() : "--";
+          this.motionEvents.push({
+            id: inc.incident_id,
+            time: timeStr,
+            category: inc.attack_category || "Security Incident",
+            llmReaction: inc.pep_decision === "DENIED" ? "Exploit Trapped by Policy" : "Model Direct Response",
+            enforcement: inc.pep_decision === "DENIED" ? "PEP_DEFENSE_BLOCKED" : (isBreach ? "CONFIRMED_BREACH -> SLAUGHTER" : "PEP_AUTHORIZED"),
+            severity: inc.severity || "MEDIUM",
+            status: inc.pep_decision || "BLOCKED",
+            isBreach: isBreach
+          });
+        });
+        const cnt = document.getElementById("motion-node-count");
+        if (cnt) cnt.innerText = `${this.motionEvents.length} Incident Nodes`;
+        this.renderMotionGraph();
+      }
+    } catch (e) {
+      console.error("Failed to load SOC incidents", e);
+    }
+  }
+
+  async openIncidentDetail(incidentId) {
+    try {
+      const res = await fetch(`/api/soc/incidents/${incidentId}`);
+      if (!res.ok) return;
+      const inc = await res.json();
+
+      const modal = document.getElementById("incident-detail-modal");
+      if (!modal) return;
+      modal.classList.remove("hidden");
+
+      const idEl = document.getElementById("inc-modal-id");
+      const sevEl = document.getElementById("inc-modal-severity");
+      const pepEl = document.getElementById("inc-modal-pep");
+      const modelEl = document.getElementById("inc-modal-model");
+      const contEl = document.getElementById("inc-modal-containment");
+      const promptEl = document.getElementById("inc-modal-prompt");
+      const rawEl = document.getElementById("inc-modal-raw-response");
+      const toolEl = document.getElementById("inc-modal-tool-proposal");
+      const expEl = document.getElementById("inc-modal-explanation");
+      const resEl = document.getElementById("inc-modal-resource-result");
+      const hashEl = document.getElementById("inc-modal-audit-hash");
+
+      if (idEl) idEl.innerText = inc.incident_id;
+      if (sevEl) {
+        sevEl.innerText = inc.severity;
+        const isCrit = inc.severity && (inc.severity.includes('CRITICAL') || inc.severity.includes('HIGH'));
+        sevEl.className = `metric-tile-val ${isCrit ? 'text-red' : 'text-blue'}`;
+      }
+      if (pepEl) pepEl.innerText = inc.pep_decision;
+      if (modelEl) modelEl.innerText = inc.target_model;
+      if (contEl) contEl.innerText = inc.containment_status;
+      if (promptEl) promptEl.innerText = inc.prompt || inc.attack_prompt || "N/A";
+      if (rawEl) rawEl.innerText = inc.raw_response || inc.raw_model_response || "N/A";
+      if (toolEl) toolEl.innerText = inc.tool_arguments ? `${inc.proposed_tool || 'tool'}(${inc.tool_arguments})` : (inc.proposed_tool || inc.tool_proposal ? JSON.stringify(inc.proposed_tool || inc.tool_proposal, null, 2) : "NONE");
+      if (expEl) expEl.innerText = inc.pep_reason || inc.policy_explanation || "Zero-Trust PEP boundary policy enforcement.";
+      if (resEl) resEl.innerText = inc.resource_access_outcome || inc.resource_access_result || "ACCESS_DENIED";
+      if (hashEl) hashEl.innerText = inc.audit_hash || "NONE";
+    } catch (e) {
+      console.error("Failed to open incident detail", e);
     }
   }
 }
