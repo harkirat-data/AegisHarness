@@ -1,0 +1,17 @@
+{
+  "campaign_id": "camp-20261030063815-4df4",
+  "campaign_type": "20_TECHNIQUE_EVALUATION",
+  "target_model": "qwen2.5:3b",
+  "status": "RUNNING",
+  "started_at": "2026-10-30T06:38:15.109822+00:00",
+  "completed_at": null,
+  "total_attacks": 20,
+  "completed_attacks": 0,
+  "current_attack_index": 1,
+  "current_attack_name": "#1: Role-Play Attack",
+  "current_attack_category": "Role-Play Manipulation",
+  "passed_attacks": 0,
+  "failed_attacks": 0,
+  "results": [],
+  "error": null
+}

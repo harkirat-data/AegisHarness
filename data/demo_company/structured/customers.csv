@@ -1,0 +1,6 @@
+id,name,email,department,account_tier
+101,Alice Morgan,alice.morgan@synthetic-corp.local,Engineering,Enterprise
+102,Bob Vance,bob.vance@synthetic-corp.local,Logistics,Standard
+103,Carol Danvers,carol.d@synthetic-corp.local,Research,Enterprise
+104,David Miller,david.m@synthetic-corp.local,Support,Trial
+105,Elena Rostova,elena.r@synthetic-corp.local,Security,Enterprise

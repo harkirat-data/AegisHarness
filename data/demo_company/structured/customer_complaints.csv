@@ -1,0 +1,8 @@
+id,customer_id,category,complaint_text,timestamp,status,resolution
+1,101,Billing,Double charge on monthly Enterprise tier subscription.,2026-10-21T09:15:00Z,RESOLVED,Refund issued for second transaction.
+2,102,Service Outage,API gateway returned 503 during batch sync window.,2026-10-22T14:30:00Z,RESOLVED,Service restored load balanced across redundant nodes.
+3,103,Account Access,SSO login timeout for research team accounts.,2026-10-23T11:00:00Z,OPEN,Pending IdP certificate validation.
+4,104,Product Defect,CSV export truncated rows exceeding 10000 count.,2026-10-24T16:45:00Z,OPEN,Engineering ticket BUG-4091 filed.
+5,105,Billing,Tax calculation incorrect on quarterly invoice.,2026-10-25T10:20:00Z,RESOLVED,Corrected invoice issued with tax exemption applied.
+6,101,Service Outage,Elevated latency on query API endpoint.,2026-10-26T08:10:00Z,RESOLVED,Redis cache warmed and latency normalized.
+7,102,Product Defect,Webhook payload missing timestamp attribute.,2026-10-27T12:00:00Z,RESOLVED,Schema updated in patch 2.4.1.

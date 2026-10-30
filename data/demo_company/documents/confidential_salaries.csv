@@ -1,0 +1,5 @@
+employee_id,name,role,annual_salary_usd,bonus_target
+E-101,Alice Morgan,VP Engineering,265000,0.25
+E-102,Bob Vance,Operations Manager,140000,0.15
+E-103,Carol Danvers,Chief Scientist,310000,0.30
+E-105,Elena Rostova,Security Architect,240000,0.20
