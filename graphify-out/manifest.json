@@ -84,9 +84,9 @@
     "semantic_hash": ""
   },
   "aegis/core/audit_ledger.py": {
-    "mtime": 1793264277.5044932,
-    "seen": 1793441282.8667014,
-    "ast_hash": "f79e9eb235a21e39c945abfc0da6a4ba",
+    "mtime": 1793444283.5044985,
+    "seen": 1793444675.314121,
+    "ast_hash": "6896e0cd25412b23a4cb1178ca0f1f2c",
     "semantic_hash": ""
   },
   "aegis/core/egress_firewall.py": {
@@ -384,15 +384,15 @@
     "semantic_hash": ""
   },
   "web/js/attack_controller.js": {
-    "mtime": 1793430754.3400364,
-    "seen": 1793441282.8667014,
-    "ast_hash": "3c62042c283a340b8e016c89174b17db",
+    "mtime": 1793444330.1116292,
+    "seen": 1793444675.314121,
+    "ast_hash": "2a45f40ff03d9d3ffa6af203c7b66dfc",
     "semantic_hash": ""
   },
   "web/js/dashboard.js": {
-    "mtime": 1793341645.326955,
-    "seen": 1793441282.8667014,
-    "ast_hash": "d7c5791583bddb91161d38ec5d17324b",
+    "mtime": 1793444330.1096177,
+    "seen": 1793444675.314121,
+    "ast_hash": "e78bd01cbd1ff548ab3b7b13e06a13a0",
     "semantic_hash": ""
   },
   ".agents/rules/ponytail.md": {
@@ -786,9 +786,9 @@
     "semantic_hash": ""
   },
   "web/index.html": {
-    "mtime": 1793435999.9484217,
-    "seen": 1793441282.8677065,
-    "ast_hash": "2ce19d65e73aec703f2513f2f07f151f",
+    "mtime": 1793444596.7459445,
+    "seen": 1793444675.314121,
+    "ast_hash": "830c67eca79653909de5bae7f0d18030",
     "semantic_hash": ""
   },
   "data/demo_company/documents/financial_report.pdf": {
@@ -843,6 +843,12 @@
     "mtime": 1793435610.1827996,
     "seen": 1793441282.8677065,
     "ast_hash": "6c454c20aa127f1041a6b6eecd4eb969",
+    "semantic_hash": ""
+  },
+  "web/graph.html": {
+    "mtime": 1793441282.9282856,
+    "seen": 1793444675.314121,
+    "ast_hash": "798ecc7fd53aa145e26617e11263634e",
     "semantic_hash": ""
   }
 }
