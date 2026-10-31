@@ -1,0 +1,6 @@
+Can your autonomous AI agent be trusted? Put it to the test.
+
+AegisHarness enforces unyielding zero-trust containment across every local LLM syscall — featuring an independent Policy Enforcement Point (PEP), < 15ms process slaughter, and immutable SHA-256 Merkle audit proofs.
+
+Form folgt Invariante. 🛡️
+GitHub: https://github.com/harkirat-data/AegisHarness-Hacktoberfest
