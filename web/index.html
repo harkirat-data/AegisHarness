@@ -12,6 +12,8 @@
   
   <link rel="stylesheet" href="/static/css/aegis.css">
   <link rel="stylesheet" href="/static/css/personal_components.css">
+  <!-- Three.js for Motionsites 3D WebGL Sandbox Engine -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
   <!-- Top Global Header -->
@@ -53,44 +55,192 @@
   <div id="landing-page-view" class="landing-page-view">
     <main class="main-content" style="max-width: 1280px; margin: 1.5rem auto;">
       <div class="swiss-editorial-spread">
-        <!-- Editorial Masthead -->
+        <!-- Editorial Masthead (Magazine Publication Header) -->
         <header class="editorial-masthead">
-          <div><span class="red-dot"></span><strong>DISPATCH NO. 01</strong> &bull; SPECIFICATION SPREAD</div>
-          <div>THE ZERO-TRUST FOUNDATION &bull; AUTONOMOUS AI SENTRY</div>
-          <div>ZURICH / SAN FRANCISCO &bull; AUTUMN 2026</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="red-dot"></span>
+            <strong>ISSUE N° 48</strong> &bull; VOL. II &bull; AUTUMN 2026
+          </div>
+          <div style="letter-spacing: 0.18em; font-weight: 800;">
+            THE AEGIS HARNESS SPECIFICATION &bull; AUTONOMOUS AI SENTRY
+          </div>
+          <div>
+            KOLKATA, WEST BENGAL &bull; ISSN 2940-1127
+          </div>
         </header>
 
-        <!-- Swiss Asymmetric Hero Section with Vector Illustration & Floating Badges -->
+        <!-- Swiss Asymmetric Hero Section with 3D WebGL Stage & Vector Artwork -->
         <div class="swiss-hero">
           <div class="swiss-hero-left">
             <div class="swiss-kicker">01 / ARCHITECTURAL SPECIFICATION &bull; SWISS RASTER</div>
-            <h1 class="swiss-title-raster">Form folgt<br/>Invariante.</h1>
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 2rem;">
+              <h1 class="swiss-title-raster">Form folgt<br/>Invariante.</h1>
+              <div class="swiss-graphic-circle" title="Swiss Grid Coordinate Origin • Kolkata, West Bengal">
+                <span>CCU<br/>22°34′N<br/>88°22′E</span>
+              </div>
+            </div>
+            
             <div class="editorial-title-serif">The Architecture of Unyielding Zero-Trust Containment.</div>
+            
             <p class="editorial-lead editorial-dropcap">
               AegisHarness eliminates hardcoded assumptions by strictly placing an independent Policy Enforcement Point (PEP) and disposable process sandboxes between local LLM tool proposals and host operating system resources. Rather than relying on fragile prompt alignment, Aegis treats every LLM as fundamentally untrusted, enforcing immutable mathematical boundaries across every system call.
-            </p>            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 0.5rem;">
-              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #1A1A1A; font-family: 'Fira Code', monospace; padding: 6px 12px;">[PEP] 100% Policy Sentry</span>
-              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #B23A22; font-family: 'Fira Code', monospace; padding: 6px 12px;">[SLA] &lt; 15ms Slaughter</span>
-              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #1E653A; font-family: 'Fira Code', monospace; padding: 6px 12px;">[WORM] SHA-256 Merkle Ledger</span>
+            </p>
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 0.85rem;">
+              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #1A1A1A; font-family: 'Fira Code', monospace; padding: 6px 14px; font-weight: 600;">
+                <span class="red-dot"></span> [PEP] 100% Policy Sentry
+              </span>
+              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #B23A22; font-family: 'Fira Code', monospace; padding: 6px 14px; font-weight: 600;">
+                [SLA] &lt; 15ms Slaughter
+              </span>
+              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #1E653A; font-family: 'Fira Code', monospace; padding: 6px 14px; font-weight: 600;">
+                [WORM] SHA-256 Merkle Ledger
+              </span>
+            </div>
+
+            <div style="margin-top: 2rem;">
+              <button id="btn-hero-launch-dashboard" class="swiss-btn-red magnetic-btn" style="font-size: 1.05rem; padding: 1.1rem 2.8rem; cursor: pointer; box-shadow: 0 8px 24px rgba(178, 58, 34, 0.28);">
+                Explore the Live Dashboard &rarr;
+              </button>
             </div>
           </div>
 
+          <!-- Hero Right: Interactive 3D WebGL Sentry Stage (Motionsites 3D Technique) -->
           <div class="swiss-hero-right">
-            <div class="motion-vector-card motion-float">
-              <img src="/static/images/vector_sysadmin.png" alt="Aegis Zero-Trust Sentry" class="motion-vector-img" />
-              <div class="motion-badge-chip top-right">
-                <span class="red-dot"></span> 100% PEP ISOLATION
+                        <div class="hero-3d-stage" id="hero-3d-stage" tabindex="0" role="region" aria-label="Interactive 3D LLM Neural Sentry and Zero-Trust Policy Enclave. Drag to rotate.">
+              <canvas id="hero-3d-canvas" class="hero-3d-canvas"></canvas>
+              <div class="motion-badge-chip top-left" style="top: 16px; left: 16px; font-size: 0.7rem;">
+                <span style="color: #1E653A; font-weight: 700;">[PEP]</span> ZERO-TRUST ENCLAVE
               </div>
-              <div class="motion-badge-chip bottom-left">
-                <span style="color: #1E653A; font-weight: 700;">[SLA]</span> 11.4ms Monotonic
+              <div class="motion-badge-chip top-right">
+                <span class="red-dot"></span> LLM NEURAL SENTRY
+              </div>
+              <div class="three-d-hint">
+                &harr; Drag to inspect 3D neural shield
               </div>
             </div>
-          </div>
->
           </div>
         </div>
 
-        <!-- Mobbin-Style Live Interactive Simulation Terminal -->
+        <!-- Editorial Pull Quote Section (Magazine Feature Spread) -->
+        <div class="editorial-pull-quote-block motion-reveal">
+          <div class="editorial-pull-quote-text">
+            &ldquo;We didn&rsquo;t slow down. We finally noticed that prompt alignment is merely a probabilistic suggestion, while the kernel boundary is an invariant mathematical truth.&rdquo;
+          </div>
+          <div class="editorial-pull-quote-citation">
+            &mdash; Aegis Security Research Group &bull; Dispatch N&deg; 48 &bull; Kolkata, West Bengal
+          </div>
+        </div>
+
+        <!-- Chapter 01: Company Zone (Featuring vector_zero_trust_login.png) -->
+        <section class="motion-chapter motion-reveal">
+          <div class="motion-chapter-content">
+            <div class="swiss-kicker">ZONE 01 &bull; PROTECTED ENTERPRISE</div>
+            <h2 style="font-family: var(--font-serif); font-size: 2.2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
+              The Corporate Asset Vault
+            </h2>
+            <p style="font-size: 0.98rem; color: #4A4A4A; line-height: 1.75; margin-bottom: 1.25rem;">
+              The Company Zone represents <strong>Aegis Financial Solutions Ltd.</strong>, an FCA-regulated enterprise baseline. It hosts real SQLite trading portfolios, customer KYC records, and restricted payroll ledgers. The AI agent operates in read-only mode with strict boundary filters, guaranteeing that sensitive business assets never cross into unverified contexts.
+            </p>
+            <ul style="font-size: 0.88rem; color: #1A1A1A; line-height: 1.85; margin-left: 1.2rem;">
+              <li>Synthetic Financial Infrastructure with verified schemas and canary tokens</li>
+              <li>Dual operational modes: Restricted General vs. Tier-3 Company Assistant</li>
+              <li>Zero direct OS filesystem or network access without explicit PEP sign-off</li>
+            </ul>
+          </div>
+          <div class="motion-vector-card motion-float" id="stage-vault">
+            <canvas id="canvas-vault" class="artifact-3d-canvas" aria-label="3D Enterprise Asset Vault Artifact"></canvas>
+            <div class="motion-badge-chip top-right">
+              <span class="red-dot"></span> FCA REGULATED
+            </div>
+            <div class="motion-badge-chip bottom-left">
+              <span>VAULT</span> Protected Vault
+            </div>
+          </div>
+        </section>
+
+        <!-- Chapter 02: Red Zone (Featuring vector_hacker_attack.png) -->
+        <section class="motion-chapter reverse motion-reveal">
+          <div class="motion-chapter-content">
+            <div class="swiss-kicker">ZONE 02 &bull; ADVERSARIAL TESTING</div>
+            <h2 style="font-family: var(--font-serif); font-size: 2.2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
+              Adversarial Ingress &amp; Stress Testing
+            </h2>
+            <p style="font-size: 0.98rem; color: #4A4A4A; line-height: 1.75; margin-bottom: 1.25rem;">
+              The Red Zone equips security operators with automated MITRE ATLAS and OWASP Top 10 attack batteries. Evaluate multi-turn psychological manipulation, Base64 obfuscation, SQL injection, and indirect prompt injection across 20 distinct adversarial techniques with continuous telemetry correlation.
+            </p>
+            <ul style="font-size: 0.88rem; color: #1A1A1A; line-height: 1.85; margin-left: 1.2rem;">
+              <li>20 Automated Adversarial Technique Suites with live campaign tracking</li>
+              <li>Curated Jailbreak Library integration (Persona shifts, delimiter bypasses, recursive encoding)</li>
+              <li>Interactive manual red-team chat workbench with technical parameter capture</li>
+            </ul>
+          </div>
+          <div class="motion-vector-card motion-float-reverse" id="stage-adversarial">
+            <canvas id="canvas-adversarial" class="artifact-3d-canvas" aria-label="3D Adversarial Signal Field Artifact"></canvas>
+            <div class="motion-badge-chip top-right" style="color: #B23A22; border-color: #F5C6BE;">
+              <span class="red-dot"></span> 20 TECHNIQUES
+            </div>
+            <div class="motion-badge-chip bottom-left">
+              <span>INGRESS</span> Signal Field
+            </div>
+          </div>
+        </section>
+
+        <!-- Chapter 03: Target Zone (Featuring vector_policy_check.png) -->
+        <section class="motion-chapter motion-reveal">
+          <div class="motion-chapter-content">
+            <div class="swiss-kicker">ZONE 03 &bull; AGENT RUNTIME &amp; PEP</div>
+            <h2 style="font-family: var(--font-serif); font-size: 2.2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
+              Deterministic Policy Enforcement
+            </h2>
+            <p style="font-size: 0.98rem; color: #4A4A4A; line-height: 1.75; margin-bottom: 1.25rem;">
+              Local LLMs are executed in ephemeral child processes with hardware resource quotas. The Aegis Policy Enforcement Point (PEP) intercepts tool proposals out-of-band, validating path canonicalization and SQL AST before kernel invocation. If an illegal action is attempted, the supervisor terminates the child process in sub-15ms.
+            </p>
+            <ul style="font-size: 0.88rem; color: #1A1A1A; line-height: 1.85; margin-left: 1.2rem;">
+              <li>Out-of-band AST parser and parameter boundary enforcement</li>
+              <li>Sub-15ms monotonic process slaughter SLA upon containment breach</li>
+              <li>Real-time oscilloscope latency waveform &amp; HTTP request tracing</li>
+            </ul>
+          </div>
+          <div class="motion-vector-card motion-float" id="stage-policy">
+            <canvas id="canvas-policy" class="artifact-3d-canvas" aria-label="3D Deterministic Policy Gate Artifact"></canvas>
+            <div class="motion-badge-chip top-right">
+              <span>PEP</span> DETERMINISTIC PEP
+            </div>
+            <div class="motion-badge-chip bottom-left">
+              <span>AST</span> AST Verification
+            </div>
+          </div>
+        </section>
+
+        <!-- Chapter 04: Audit Ledger (Featuring vector_sysadmin.png) -->
+        <section class="motion-chapter reverse motion-reveal">
+          <div class="motion-chapter-content">
+            <div class="swiss-kicker">ZONE 04 &bull; CRYPTOGRAPHIC AUDIT</div>
+            <h2 style="font-family: var(--font-serif); font-size: 2.2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
+              Cryptographic WORM Audit Proofs
+            </h2>
+            <p style="font-size: 0.98rem; color: #4A4A4A; line-height: 1.75; margin-bottom: 1.25rem;">
+              Every prompt ingress, inference turn, tool proposal, authorization denial, and slaughter event is cryptographically sealed into an immutable SHA-256 Merkle ledger. Post-hoc verification allows security auditors to verify cryptographic tip hashes with zero possibility of tampering or non-repudiation.
+            </p>
+            <ul style="font-size: 0.88rem; color: #1A1A1A; line-height: 1.85; margin-left: 1.2rem;">
+              <li>Immutable SHA-256 Merkle chained ledger blocks with parent hash validation</li>
+              <li>One-click mathematical proof verification with root digest output</li>
+              <li>Full forensic telemetry correlation with Blue SOC incident timelines</li>
+            </ul>
+          </div>
+          <div class="motion-vector-card motion-float-reverse" id="stage-ledger">
+            <canvas id="canvas-ledger" class="artifact-3d-canvas" aria-label="3D Immutable Ledger Structure Artifact"></canvas>
+            <div class="motion-badge-chip top-right">
+              <span>WORM</span> MERKLE WORM
+            </div>
+            <div class="motion-badge-chip bottom-left">
+              <span>PROOF</span> Non-Repudiation
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Interactive Simulation Terminal (Mobbin & Motionsites Execution Flow) -->
         <div class="motion-interactive-terminal motion-reveal">
           <div class="motion-terminal-header">
             <div style="display: flex; align-items: center;">
@@ -122,116 +272,6 @@
             <span style="color: #1A1A1A;">[WORM LEDGER] Block #42 committed &bull; SHA-256 Tip: <code>e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</code></span>
           </div>
         </div>
-
-        <!-- Chapter 01: Company Zone (Featuring vector_sysadmin.png) -->
-        <section class="motion-chapter motion-reveal">
-          <div class="motion-chapter-content">
-            <div class="swiss-kicker">ZONE 01 &bull; PROTECTED ENTERPRISE</div>
-            <h2 style="font-family: var(--font-serif); font-size: 2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
-              The Corporate Asset Vault
-            </h2>
-            <p style="font-size: 0.95rem; color: #4A4A4A; line-height: 1.7; margin-bottom: 1.25rem;">
-              The Company Zone represents <strong>Aegis Financial Solutions Ltd.</strong>, an FCA-regulated enterprise baseline. It hosts real SQLite trading portfolios, customer KYC records, and restricted payroll ledgers. The AI agent operates in read-only mode with strict boundary filters, guaranteeing that sensitive business assets never cross into unverified contexts.
-            </p>
-            <ul style="font-size: 0.85rem; color: #1A1A1A; line-height: 1.8; margin-left: 1.2rem;">
-              <li>Synthetic Financial Infrastructure with verified schemas</li>
-              <li>Dual operational modes: Restricted General vs. Tier-3 Company Assistant</li>
-              <li>Zero direct OS filesystem or network access without explicit PEP sign-off</li>
-            </ul>
-          </div>
-          <div class="motion-vector-card motion-float">
-            <img src="/static/images/vector_sysadmin.png" alt="Company Zone Protection" class="motion-vector-img" />
-            <div class="motion-badge-chip top-right">
-              <span class="red-dot"></span> FCA REGULATED
-            </div>            <div class="motion-badge-chip bottom-left">
-              <span>VAULT</span> Enterprise Vault
-            </div>
-          </div>
-        </section>
-
-        <!-- Chapter 02: Red Zone (Featuring vector_hacker_attack.png) -->
-        <section class="motion-chapter reverse motion-reveal">
-          <div class="motion-chapter-content">
-            <div class="swiss-kicker">ZONE 02 &bull; ADVERSARIAL TESTING</div>
-            <h2 style="font-family: var(--font-serif); font-size: 2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
-              Adversarial Ingress &amp; Stress Testing
-            </h2>
-            <p style="font-size: 0.95rem; color: #4A4A4A; line-height: 1.7; margin-bottom: 1.25rem;">
-              The Red Zone equips security operators with automated MITRE ATLAS and OWASP Top 10 attack batteries. Evaluate multi-turn psychological manipulation, Base64 obfuscation, SQL injection, and indirect prompt injection across 20 distinct adversarial techniques.
-            </p>
-            <ul style="font-size: 0.85rem; color: #1A1A1A; line-height: 1.8; margin-left: 1.2rem;">
-              <li>20 Automated Adversarial Technique Suites with live campaign tracking</li>
-              <li>Curated Jailbreak Library integration (Persona shifts, encoding bypasses)</li>
-              <li>Interactive manual red-team chat workbench with technical parameter capture</li>
-            </ul>
-          </div>
-          <div class="motion-vector-card motion-float-reverse">
-            <img src="/static/images/vector_hacker_attack.png" alt="Red Team Ingress" class="motion-vector-img" />
-            <div class="motion-badge-chip top-right" style="color: #B23A22; border-color: #F5C6BE;">
-              <span class="red-dot"></span> 20 TECHNIQUES
-            </div>
-            <div class="motion-badge-chip bottom-left">
-              <span>INGRESS</span> Ingress Gateway
-            </div>
-          </div>
-        </section>
-
-        <!-- Chapter 03: Target Zone (Featuring vector_policy_check.png) -->
-        <section class="motion-chapter motion-reveal">
-          <div class="motion-chapter-content">
-            <div class="swiss-kicker">ZONE 03 &bull; AGENT RUNTIME &amp; PEP</div>
-            <h2 style="font-family: var(--font-serif); font-size: 2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
-              Deterministic Policy Enforcement
-            </h2>
-            <p style="font-size: 0.95rem; color: #4A4A4A; line-height: 1.7; margin-bottom: 1.25rem;">
-              Local LLMs are executed in ephemeral child processes with hardware resource quotas. The Aegis Policy Enforcement Point (PEP) intercepts tool proposals out-of-band, validating path canonicalization and SQL AST before kernel invocation. If an illegal action is attempted, the supervisor terminates the child process in sub-15ms.
-            </p>
-            <ul style="font-size: 0.85rem; color: #1A1A1A; line-height: 1.8; margin-left: 1.2rem;">
-              <li>Out-of-band AST parser and parameter boundary enforcement</li>
-              <li>Sub-15ms monotonic process slaughter SLA</li>
-              <li>Real-time oscilloscope latency waveform &amp; HTTP request tracing</li>
-            </ul>
-          </div>
-          <div class="motion-vector-card motion-float">
-            <img src="/static/images/vector_policy_check.png" alt="Policy Enforcement Sentry" class="motion-vector-img" />
-            <div class="motion-badge-chip top-right">
-              <span>PEP</span> DETERMINISTIC PEP
-            </div>
-            <div class="motion-badge-chip bottom-left">
-              <span>AST</span> AST Verification
-            </div>
-          </div>
-        </section>
-
-        <!-- Chapter 04: Audit Ledger (Featuring vector_zero_trust_login.png) -->
-        <section class="motion-chapter reverse motion-reveal">
-          <div class="motion-chapter-content">
-            <div class="swiss-kicker">ZONE 04 &bull; CRYPTOGRAPHIC AUDIT</div>
-            <h2 style="font-family: var(--font-serif); font-size: 2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
-              Cryptographic WORM Audit Proofs
-            </h2>
-            <p style="font-size: 0.95rem; color: #4A4A4A; line-height: 1.7; margin-bottom: 1.25rem;">
-              Every prompt ingress, inference turn, tool proposal, authorization denial, and slaughter event is cryptographically sealed into an immutable SHA-256 Merkle ledger. Post-hoc verification allows security auditors to verify cryptographic tip hashes with zero possibility of tampering or non-repudiation.
-            </p>
-            <ul style="font-size: 0.85rem; color: #1A1A1A; line-height: 1.8; margin-left: 1.2rem;">
-              <li>Immutable SHA-256 Merkle chained ledger blocks</li>
-              <li>One-click mathematical proof verification with root digest output</li>
-              <li>Full forensic telemetry correlation with Blue SOC incident timelines</li>
-            </ul>
-          </div>
-          <div class="motion-vector-card motion-float-reverse">
-            <img src="/static/images/vector_zero_trust_login.png" alt="Cryptographic Ledger" class="motion-vector-img" />
-            <div class="motion-badge-chip top-right">
-              <span>WORM</span> MERKLE WORM
-            </div>
-            <div class="motion-badge-chip bottom-left">
-              <span>PROOF</span> Non-Repudiation
-            </div>
-          </div>
-        </section>
-
-          </div>
-        </section>
 
         <!-- Swiss Graphic Numbers Grid (01, 02, 03, 04) -->
         <div class="swiss-numbers-grid motion-reveal">
@@ -269,12 +309,12 @@
         <div class="swiss-cta-strip motion-reveal">
           <div>
             <div class="swiss-cta-title">Explore the Live Zero-Trust Environment</div>
-            <div style="font-size: 0.85rem; color: #6E6B66; margin-top: 4px;">
+            <div style="font-size: 0.88rem; color: #6E6B66; margin-top: 4px;">
               Enter the interactive multi-zone security evaluation dashboard.
             </div>
           </div>
           <div>
-            <button id="btn-hero-launch-dashboard" class="swiss-btn-red" style="font-size: 1.05rem; padding: 1.1rem 2.8rem; cursor: pointer; box-shadow: 0 4px 14px rgba(178, 58, 34, 0.25);">
+            <button id="btn-footer-launch-dashboard" class="swiss-btn-red magnetic-btn" style="font-size: 1.05rem; padding: 1.1rem 2.8rem; cursor: pointer; box-shadow: 0 8px 24px rgba(178, 58, 34, 0.28);">
               Explore the Dashboard &rarr;
             </button>
           </div>
@@ -1358,5 +1398,6 @@ Select a jailbreak payload from the left to inspect its adversarial instructions
   <script src="/static/js/dashboard.js"></script>
   <script src="/static/js/attack_controller.js"></script>
   <script src="/static/js/aegis_app.js"></script>
+  <script src="/static/js/aegis_3d_artifacts.js"></script>
 </body>
 </html>

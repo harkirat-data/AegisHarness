@@ -649,6 +649,14 @@ class AttackController {
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
+        const footerLaunchBtn = document.getElementById("btn-footer-launch-dashboard");
+    if (footerLaunchBtn) footerLaunchBtn.addEventListener("click", () => showDashboard("pane-company"));
+    
+    // Initialize Motionsites 3D WebGL, 3D Tilt & Magnetic Physics
+    if (typeof initMotionsites3D === "function") initMotionsites3D();
+    if (typeof init3DCardTilt === "function") init3DCardTilt();
+    if (typeof initMagneticButtons === "function") initMagneticButtons();
+
     if (heroLaunchBtn) heroLaunchBtn.addEventListener("click", () => showDashboard("pane-company"));
     if (headerBackBtn) headerBackBtn.addEventListener("click", () => showLanding());
     if (brandHomeBtn) {
@@ -3936,4 +3944,66 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initAttackController);
 } else {
   initAttackController();
+}
+
+
+// =========================================================================
+// MOTIONSITES 3D WEBGL ISOLATION CORE & INTERACTIVE DEPTH
+// =========================================================================
+function initMotionsites3D() {
+  if (typeof window.initAllAegis3DArtifacts === 'function') {
+    window.initAllAegis3DArtifacts();
+  }
+}
+
+// Motionsites 3D Card Perspective Tilt & Dynamic Specular Glare
+function init3DCardTilt() {
+  const cards = document.querySelectorAll(".motion-vector-card");
+  cards.forEach((card) => {
+    let glare = card.querySelector(".card-3d-glare");
+    if (!glare) {
+      glare = document.createElement("div");
+      glare.className = "card-3d-glare";
+      card.appendChild(glare);
+    }
+
+    card.addEventListener("mousemove", (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+
+      const rotateX = ((y - centerY) / centerY) * -11;
+      const rotateY = ((x - centerX) / centerX) * 11;
+
+      card.style.transform = `perspective(1000px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) scale3d(1.02, 1.02, 1.02)`;
+
+      const glareX = (x / rect.width) * 100;
+      const glareY = (y / rect.height) * 100;
+      glare.style.background = `radial-gradient(circle at ${glareX}% ${glareY}%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 70%)`;
+      glare.style.opacity = "1";
+    });
+
+    card.addEventListener("mouseleave", () => {
+      card.style.transform = "perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)";
+      glare.style.opacity = "0";
+    });
+  });
+}
+
+// Motionsites Magnetic Buttons
+function initMagneticButtons() {
+  const magnets = document.querySelectorAll(".magnetic-btn, .swiss-btn-red");
+  magnets.forEach((btn) => {
+    btn.addEventListener("mousemove", (e) => {
+      const rect = btn.getBoundingClientRect();
+      const x = e.clientX - (rect.left + rect.width / 2);
+      const y = e.clientY - (rect.top + rect.height / 2);
+      btn.style.transform = `translate3d(${x * 0.25}px, ${y * 0.25}px, 0) scale(1.04)`;
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.transform = "translate3d(0, 0, 0) scale(1)";
+    });
+  });
 }

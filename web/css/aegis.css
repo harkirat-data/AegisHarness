@@ -1945,6 +1945,11 @@ body {
   pointer-events: none;
 }
 
+.motion-badge-chip.top-left {
+  top: 18px;
+  left: 18px;
+}
+
 .motion-badge-chip.top-right {
   top: 18px;
   right: 18px;
@@ -2002,3 +2007,171 @@ body {
 
 
 
+
+
+/* ========================================================================= */
+/* MOTIONSITES 3D ANIMATION & DEPTH SYSTEM                                   */
+/* ========================================================================= */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* Swiss Graphic Red Circle with Coordinates */
+.swiss-graphic-circle {
+  width: 110px;
+  height: 110px;
+  background: #B23A22;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FAF8F5;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(178, 58, 34, 0.28);
+  transition: transform 0.6s var(--ease-out-expo), box-shadow 0.6s ease;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.swiss-graphic-circle:hover {
+  transform: scale(1.08) rotate(10deg);
+  box-shadow: 0 16px 36px rgba(178, 58, 34, 0.36);
+}
+
+/* 3D WebGL Sentry Stage */
+.hero-3d-stage {
+  position: relative;
+  width: 100%;
+  height: 420px;
+  border-radius: 16px;
+  background: radial-gradient(circle at center, #FAF8F5 0%, #F4EFE6 100%);
+  border: 1px solid #D9D0C1;
+  box-shadow: 0 16px 48px rgba(26, 26, 26, 0.06);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  perspective: 1200px;
+}
+
+.hero-3d-stage:active {
+  cursor: grabbing;
+}
+
+.hero-3d-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.three-d-hint {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #8C827A;
+  background: rgba(250, 248, 245, 0.85);
+  backdrop-filter: blur(4px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #E2DDD5;
+  pointer-events: none;
+}
+
+/* 3D Perspective Card Tilt & Dynamic Glare (Motionsites Depth) */
+.motion-vector-card {
+  perspective: 1200px !important;
+  transform-style: preserve-3d !important;
+  will-change: transform;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease !important;
+}
+
+.card-3d-glare {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 10;
+  mix-blend-mode: overlay;
+  border-radius: 12px;
+}
+
+.motion-badge-chip {
+  transform: translateZ(35px);
+  will-change: transform;
+}
+
+.motion-vector-img {
+  transform: translateZ(20px);
+  will-change: transform;
+}
+
+/* Editorial Pull Quote Spread */
+.editorial-pull-quote-block {
+  margin: 3.5rem 0;
+  padding: 2.8rem 3.5rem;
+  border-top: 2px solid #1A1A1A;
+  border-bottom: 2px solid #1A1A1A;
+  background: #FAF8F5;
+  text-align: center;
+}
+
+.editorial-pull-quote-text {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  line-height: 1.45;
+  color: #1A1A1A;
+  font-style: italic;
+  max-width: 960px;
+  margin: 0 auto 1.25rem auto;
+}
+
+.editorial-pull-quote-citation {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #B23A22;
+}
+
+/* Magnetic Button Motion */
+.magnetic-btn {
+  display: inline-block;
+  will-change: transform;
+  transition: transform 0.25s var(--ease-out-expo), box-shadow 0.25s ease;
+}
+
+
+/* 3D Artifact Canvases */
+.artifact-3d-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 380px;
+  display: block;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.motion-vector-card {
+  height: 380px;
+  min-height: 380px;
+  padding: 0 !important;
+  display: block !important;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #FAF8F5 0%, #F4EFE6 100%) !important;
+}
