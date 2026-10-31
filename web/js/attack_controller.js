@@ -686,7 +686,20 @@ class AttackController {
       });
     }
 
-    // Scroll-triggered reveal motion observer for landing page chapters
+    // Editorial Scroll Progress Indicator & Parallax Controller
+    const scrollBar = document.getElementById("scroll-progress-bar");
+    const onScroll = () => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (scrollBar && docHeight > 0) {
+        const progress = Math.min(100, Math.max(0, (scrollTop / docHeight) * 100));
+        scrollBar.style.width = `${progress}%`;
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    // Scroll-triggered reveal motion observer for landing page chapters and sections
     if ("IntersectionObserver" in window) {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
@@ -694,11 +707,20 @@ class AttackController {
             entry.target.classList.add("is-visible");
           }
         });
-      }, { threshold: 0.12 });
+      }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
 
-      document.querySelectorAll(".motion-reveal").forEach((el) => observer.observe(el));
+      const revealSelectors = [
+        ".motion-reveal",
+        ".motion-chapter",
+        ".swiss-spec-centered",
+        ".motion-interactive-terminal",
+        ".swiss-numbers-grid",
+        ".swiss-cta-strip",
+        ".editorial-pull-quote-block"
+      ];
+      document.querySelectorAll(revealSelectors.join(", ")).forEach((el) => observer.observe(el));
     } else {
-      document.querySelectorAll(".motion-reveal").forEach((el) => el.classList.add("is-visible"));
+      document.querySelectorAll(".motion-reveal, .motion-chapter").forEach((el) => el.classList.add("is-visible"));
     }
   }
 

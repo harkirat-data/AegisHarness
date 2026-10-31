@@ -60,6 +60,11 @@
     </div>
   </header>
 
+  <!-- Editorial Scroll Progress Indicator -->
+  <div class="scroll-progress-container" aria-hidden="true">
+    <div class="scroll-progress-bar" id="scroll-progress-bar"></div>
+  </div>
+
   <!-- ========================================================================= -->
   <!-- 1. STANDALONE LANDING PAGE VIEW (Swiss + Editorial Publication Spread)    -->
   <!-- ========================================================================= -->
@@ -79,32 +84,13 @@
             Challenge AI agents. Expose unauthorized actions. Verify that every operation remains under control.
           </p>
 
-          <div class="hero-top-cta-group">
-            <button id="btn-hero-get-started" class="btn-pill-black" style="font-size: 0.98rem; padding: 0.85rem 2.2rem; cursor: pointer;">
-              Get Started &rarr;
-            </button>
-            <a href="#spec-section" class="btn-pill-outline" style="font-size: 0.98rem; padding: 0.85rem 2.2rem;">
-              Explore Platform
-            </a>
-          </div>
+          
         </section>
 
-        <!-- Editorial Masthead (Magazine Publication Header) -->
-        <header class="editorial-masthead" id="spec-section">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="red-dot"></span>
-            <strong>ISSUE N° 48</strong> &bull; VOL. II &bull; AUTUMN 2026
-          </div>
-          <div style="letter-spacing: 0.18em; font-weight: 800;">
-            THE AEGIS HARNESS SPECIFICATION &bull; AUTONOMOUS AI SENTRY
-          </div>
-          <div>
-            KOLKATA, WEST BENGAL &bull; ISSN 2940-1127
-          </div>
-        </header>
+        
 
         <!-- Swiss Specification Section - Centered Alignment (Screenshot 2) -->
-        <section class="swiss-spec-centered motion-reveal">
+        <section class="swiss-spec-centered motion-reveal" id="spec-section">
           <div class="swiss-kicker" style="text-align: center; margin-bottom: 1.25rem;">
             01 / ARCHITECTURAL SPECIFICATION &bull; SWISS RASTER
           </div>
@@ -138,11 +124,7 @@
             </span>
           </div>
 
-          <div style="text-align: center; margin-top: 2rem; margin-bottom: 3.5rem;">
-            <button id="btn-hero-launch-dashboard" class="swiss-btn-red magnetic-btn" style="font-size: 1.05rem; padding: 1.1rem 2.8rem; cursor: pointer; box-shadow: 0 8px 24px rgba(178, 58, 34, 0.28);">
-              Explore the Live Dashboard &rarr;
-            </button>
-          </div>
+          
         </section>
             
             <!-- Editorial Pull Quote Section (Magazine Feature Spread) -->

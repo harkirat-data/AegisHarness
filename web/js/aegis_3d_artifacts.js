@@ -562,6 +562,11 @@
           s.mesh.rotation.y = s.mesh.rotation.y + 0.002;
         });
 
+        // Scroll-driven 3D perspective tilt
+        const rVault = stage.getBoundingClientRect();
+        const scrollTiltVault = Math.max(-0.8, Math.min(0.8, (rVault.top + rVault.height * 0.5 - window.innerHeight * 0.5) / (window.innerHeight * 0.5)));
+        vaultGroup.rotation.x += (scrollTiltVault * 0.25 - vaultGroup.rotation.x) * 0.06;
+
         // Camera parallax lerp
         camera.position.x += (mouseX - camera.position.x) * 0.06;
         camera.position.y += (-mouseY + 0.4 - camera.position.y) * 0.06;
@@ -713,6 +718,11 @@
             }
           }
         });
+
+        // Scroll-driven 3D perspective tilt
+        const rAdv = stage.getBoundingClientRect();
+        const scrollTiltAdv = Math.max(-0.8, Math.min(0.8, (rAdv.top + rAdv.height * 0.5 - window.innerHeight * 0.5) / (window.innerHeight * 0.5)));
+        rootGroup.rotation.x += (scrollTiltAdv * 0.22 - rootGroup.rotation.x) * 0.06;
 
         // Subtle scientific camera shift
         camera.position.x += (mouseX - camera.position.x) * 0.05;
@@ -912,6 +922,11 @@
           }
         }
 
+        // Scroll-driven 3D perspective tilt
+        const rGate = stage.getBoundingClientRect();
+        const scrollTiltGate = Math.max(-0.8, Math.min(0.8, (rGate.top + rGate.height * 0.5 - window.innerHeight * 0.5) / (window.innerHeight * 0.5)));
+        gateGroup.rotation.x += (scrollTiltGate * 0.22 - gateGroup.rotation.x) * 0.06;
+
         // Camera parallax
         camera.position.x += (mouseX - camera.position.x) * 0.05;
         camera.position.y += (-mouseY - camera.position.y) * 0.05;
@@ -1034,9 +1049,11 @@
       const time = clock.getElapsedTime();
 
       if (!REDUCED_MOTION) {
-        // Slow structural progression
+        // Slow structural progression with scroll tilt response
+        const rLedger = stage.getBoundingClientRect();
+        const scrollTiltLedger = Math.max(-0.8, Math.min(0.8, (rLedger.top + rLedger.height * 0.5 - window.innerHeight * 0.5) / (window.innerHeight * 0.5)));
         ledgerGroup.rotation.y = 0.35 + Math.sin(time * 0.4) * 0.08;
-        ledgerGroup.rotation.x = 0.2 + Math.cos(time * 0.3) * 0.05;
+        ledgerGroup.rotation.x = 0.2 + Math.cos(time * 0.3) * 0.05 + scrollTiltLedger * 0.24;
 
         // Periodic new block locking cycle (~3.5 seconds)
         lockTimer += delta;

@@ -1382,7 +1382,7 @@ body {
   color: #1A1A1A;
   border-radius: 8px;
   border: 1px solid #E2DDD5;
-  padding: 3rem 3.5rem;
+  padding: 1.5rem 3.5rem 3.5rem;
   margin-bottom: 2rem;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
   font-family: 'Inter', -apple-system, sans-serif;
@@ -2213,7 +2213,7 @@ body {
 
 /* Primary Centered Hero Section (Screenshot 1) */
 .hero-top-centered {
-  padding: 4.5rem 1.5rem 4rem;
+  padding: 0.75rem 1.5rem 1.75rem;
   max-width: 980px;
   margin: 0 auto;
   text-align: center;
@@ -2331,7 +2331,7 @@ body {
 /* Centered Swiss Specification Section (Screenshot 2) */
 .swiss-spec-centered {
   max-width: 880px;
-  margin: 2.5rem auto 3.5rem;
+  margin: 1.5rem auto 3rem;
   text-align: center;
   padding-bottom: 2.5rem;
   border-bottom: 1px solid #E2DDD5;
@@ -2409,4 +2409,159 @@ body {
   font-weight: 600;
   font-size: 0.82rem;
   border-radius: 4px;
+}
+
+/* ========================================================================= */
+/* ENHANCED SCROLL ANIMATIONS & SCROLL-TRIGGERED STAGGER REVEALS             */
+/* ========================================================================= */
+
+/* Editorial Scroll Progress Indicator */
+.scroll-progress-container {
+  position: sticky;
+  top: 56px;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: rgba(226, 221, 213, 0.45);
+  z-index: 999;
+}
+
+.scroll-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #B23A22;
+  transition: width 0.08s ease-out;
+  box-shadow: 0 0 8px rgba(178, 58, 34, 0.4);
+}
+
+/* Cinematic Section Entrance on Scroll */
+.motion-reveal {
+  opacity: 0;
+  transform: translateY(38px) scale(0.985);
+  filter: blur(5px);
+  transition: opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.85s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.85s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform, filter;
+}
+
+.motion-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+/* Staggered Content Reveals for Chapters on Scroll */
+.motion-chapter .motion-chapter-content > * {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.motion-chapter.is-visible .motion-chapter-content > .swiss-kicker {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.06s;
+}
+
+.motion-chapter.is-visible .motion-chapter-content > h2 {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.15s;
+}
+
+.motion-chapter.is-visible .motion-chapter-content > p {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.24s;
+}
+
+.motion-chapter.is-visible .motion-chapter-content > ul {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.33s;
+}
+
+.motion-chapter .motion-vector-card {
+  opacity: 0;
+  transform: translateY(32px) scale(0.97);
+  transition: opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.15s,
+              transform 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.15s,
+              box-shadow 0.4s ease;
+}
+
+.motion-chapter.is-visible .motion-vector-card {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Interactive Simulation Terminal Staggered Row Entrance on Scroll */
+.motion-terminal-row {
+  opacity: 0;
+  transform: translateX(-16px);
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.motion-interactive-terminal.is-visible .motion-terminal-row:nth-child(2) {
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0.1s;
+}
+
+.motion-interactive-terminal.is-visible .motion-terminal-row:nth-child(3) {
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0.25s;
+}
+
+.motion-interactive-terminal.is-visible .motion-terminal-row:nth-child(4) {
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0.4s;
+}
+
+.motion-interactive-terminal.is-visible .motion-terminal-row:nth-child(5) {
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0.55s;
+}
+
+.motion-interactive-terminal.is-visible .motion-terminal-row:nth-child(6) {
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0.7s;
+}
+
+/* Swiss Numbers Grid Staggered Reveal on Scroll */
+.swiss-num-col {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.swiss-numbers-grid.is-visible .swiss-num-col:nth-child(1) {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.06s;
+}
+
+.swiss-numbers-grid.is-visible .swiss-num-col:nth-child(2) {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.18s;
+}
+
+.swiss-numbers-grid.is-visible .swiss-num-col:nth-child(3) {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.3s;
+}
+
+.swiss-numbers-grid.is-visible .swiss-num-col:nth-child(4) {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.42s;
 }
