@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "aegis/agent/llm_client.py": {
-    "mtime": 1793337652.067986,
-    "seen": 1793441282.8667014,
-    "ast_hash": "c4b90028b529002e1e34ebef144d0e40",
+    "mtime": 1793447962.5886977,
+    "seen": 1793448764.2979722,
+    "ast_hash": "437b123491349ebbf0609413ec3a6027",
     "semantic_hash": ""
   },
   "aegis/agent/schemas.py": {
@@ -138,9 +138,9 @@
     "semantic_hash": ""
   },
   "aegis/red/client.py": {
-    "mtime": 1793264715.4298942,
-    "seen": 1793441282.8667014,
-    "ast_hash": "0c85ec43890ea6684c5260d5021c6922",
+    "mtime": 1793447767.7410984,
+    "seen": 1793448764.2979722,
+    "ast_hash": "b848eafa838488a89a46eb820861d4dd",
     "semantic_hash": ""
   },
   "aegis/voice/__init__.py": {
@@ -300,9 +300,9 @@
     "semantic_hash": ""
   },
   "tests/test_chat_workbench.py": {
-    "mtime": 1793291510.8066185,
-    "seen": 1793441282.8667014,
-    "ast_hash": "69704608ff3767a2b0d6a45efa1011e4",
+    "mtime": 1793447767.8155065,
+    "seen": 1793448764.2979722,
+    "ast_hash": "79c8c915e9e1926bf5718e54f7e69801",
     "semantic_hash": ""
   },
   "tests/test_comprehensive_security_eval.py": {
@@ -330,9 +330,9 @@
     "semantic_hash": ""
   },
   "tests/test_multi_model_and_voice.py": {
-    "mtime": 1793270393.2859824,
-    "seen": 1793441282.8667014,
-    "ast_hash": "c822890afaf3e856fd98f5646da4fd3d",
+    "mtime": 1793447335.222578,
+    "seen": 1793447708.9836073,
+    "ast_hash": "1c4ab0dd23d1c8d1961869aed8d329af",
     "semantic_hash": ""
   },
   "tests/test_orchestrator.py": {
@@ -384,9 +384,9 @@
     "semantic_hash": ""
   },
   "web/js/attack_controller.js": {
-    "mtime": 1793444330.1116292,
-    "seen": 1793444675.314121,
-    "ast_hash": "2a45f40ff03d9d3ffa6af203c7b66dfc",
+    "mtime": 1793448030.804293,
+    "seen": 1793448764.2979722,
+    "ast_hash": "65f0a4293271031b62d8ce89b41c838d",
     "semantic_hash": ""
   },
   "web/js/dashboard.js": {
@@ -444,9 +444,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793288519.5157528,
-    "seen": 1793441282.8667014,
-    "ast_hash": "434683c66329a5940a7789f43cdd57da",
+    "mtime": 1793447409.954257,
+    "seen": 1793447708.9836073,
+    "ast_hash": "b26fe60d08b2204d7a75764664d26705",
     "semantic_hash": ""
   },
   "brag-output/brag-plan.md": {
@@ -702,20 +702,20 @@
     "semantic_hash": ""
   },
   "data/synthetic_workspace/protected/confidential.txt": {
-    "mtime": 1793434179.5549731,
-    "seen": 1793441282.8677065,
+    "mtime": 1793448059.6186388,
+    "seen": 1793448764.2979722,
     "ast_hash": "3f95a0d542977bb93cefdbd250de55dd",
     "semantic_hash": ""
   },
   "data/synthetic_workspace/public.txt": {
-    "mtime": 1793434179.5534563,
-    "seen": 1793441282.8677065,
+    "mtime": 1793448059.6181118,
+    "seen": 1793448764.2979722,
     "ast_hash": "b5642ae1be256a341eae0a1583ce37fa",
     "semantic_hash": ""
   },
   "data/synthetic_workspace/report.txt": {
-    "mtime": 1793434179.5539625,
-    "seen": 1793441282.8677065,
+    "mtime": 1793448059.6186388,
+    "seen": 1793448764.2979722,
     "ast_hash": "7cbd2065471838aed4724410781f813b",
     "semantic_hash": ""
   },
@@ -786,9 +786,9 @@
     "semantic_hash": ""
   },
   "web/index.html": {
-    "mtime": 1793444596.7459445,
-    "seen": 1793444675.314121,
-    "ast_hash": "830c67eca79653909de5bae7f0d18030",
+    "mtime": 1793447306.5134704,
+    "seen": 1793447708.9836073,
+    "ast_hash": "cd437b7645635ed5208f14c99e1f9539",
     "semantic_hash": ""
   },
   "data/demo_company/documents/financial_report.pdf": {

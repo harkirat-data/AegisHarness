@@ -1,17 +1,17 @@
 # Graph Report - AegisHarness  (2026-10-31)
 
 ## Corpus Check
-- 123 files · ~271,782 words
+- 123 files · ~272,011 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 16 file(s) not represented in the graph (top: .csv 6, .db 3, (none) 2)
 
 ## Summary
-- 1393 nodes · 2837 edges · 90 communities (63 shown, 27 thin omitted)
+- 1393 nodes · 2837 edges · 91 communities (63 shown, 28 thin omitted)
 - Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 320 edges (avg confidence: 0.9)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `fcfef9c6`
+- Built from commit: `18b19a51`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -25,7 +25,7 @@
 - test_multi_model_and_voice.py
 - AegisHarness: Tri-Workload Zero-Trust Evaluation Sandbox for Adversarial AI Safety
 - models.py
-- record_api_network_log
+- detect_system_hardware
 - CampaignManager
 - AdversarialScenarioEvaluator
 - aegis-orchestrator
@@ -131,7 +131,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (90 total, 27 thin omitted)
+## Communities (91 total, 28 thin omitted)
 
 ### Community 0 - "AttackController"
 Cohesion: 0.07
@@ -143,11 +143,11 @@ Nodes (27): get_attack_by_id(), AttackExecutionResult, RedTeamRunner, AuditRecor
 
 ### Community 2 - "server.py"
 Cohesion: 0.05
-Nodes (30): LedgerVerifyResponse, get_active_campaign(), get_agent_status(), get_campaign_status(), get_chat_execution(), get_chat_history(), get_chat_scenarios(), get_company_api_request_logs() (+22 more)
+Nodes (30): get_active_campaign(), get_agent_status(), get_campaign_status(), get_chat_execution(), get_chat_history(), get_chat_scenarios(), get_company_api_request_logs(), get_company_finance_disbursements() (+22 more)
 
 ### Community 3 - "environment.py"
 Cohesion: 0.06
-Nodes (21): detect_system_hardware(), get_company_overview_profile(), call_mock_internal_api(), get_database_live_status(), get_documents_live_status(), init_demo_database(), init_demo_documents(), query_demo_database() (+13 more)
+Nodes (22): get_company_finance_budgets(), get_company_hr_employees(), get_company_overview_profile(), call_mock_internal_api(), get_api_network_logs(), get_database_live_status(), get_documents_live_status(), init_demo_database() (+14 more)
 
 ### Community 4 - "json"
 Cohesion: 0.07
@@ -166,12 +166,12 @@ Cohesion: 0.05
 Nodes (37): 10. Repository Structure, 11. Step-by-Step Hackathon Demonstration Guide, 12.1. Dynamic Model Discovery & Honesty Policy, 12.2. Multi-Model Comparative Evaluation Workflow, 12. Multi-Model Support (Qwen, Gemma, Llama 3.2, DeepSeek), 13.1. Features, 13.2. Credential Security & Zero-Trust Privacy, 13. ElevenLabs Voice Integration: Blue Team Incident Assistant (+29 more)
 
 ### Community 8 - "models.py"
-Cohesion: 0.10
-Nodes (26): AttackExecutionResponse, AttackLaunchRequest, ChatMessage, ChatRequest, DiagnosticTraceStage, DirectPEPTestRequest, DirectPEPTestResponse, JailbreakExecutionRequest (+18 more)
+Cohesion: 0.11
+Nodes (23): AttackExecutionResponse, AttackLaunchRequest, ChatMessage, ChatResponse, DiagnosticTraceStage, DirectPEPTestRequest, DirectPEPTestResponse, JailbreakExecutionRequest (+15 more)
 
-### Community 9 - "record_api_network_log"
-Cohesion: 0.12
-Nodes (8): get_company_finance_budgets(), get_company_finance_disbursements(), get_company_hr_employees(), get_company_hr_salaries(), get_company_public_health(), get_company_public_info(), get_mock_metadata(), record_api_network_log()
+### Community 9 - "detect_system_hardware"
+Cohesion: 0.29
+Nodes (5): detect_system_hardware(), SystemStatusResponse, get_hardware_info(), get_system_status(), test_dynamic_hardware_detection_schema()
 
 ### Community 10 - "CampaignManager"
 Cohesion: 0.10
@@ -191,7 +191,7 @@ Nodes (17): AgentOutcomeType, test_file_reader_path_traversal_blocked(), test_fi
 
 ### Community 14 - "ToolResult"
 Cohesion: 0.06
-Nodes (26): ToolResult, BaseTool, CallInternalApiTool, ListDocumentsTool, QueryDatabaseTool, ReadDocumentTool, RestrictedNetworkTool, RestrictedPythonExecutorTool (+18 more)
+Nodes (27): ToolResult, BaseTool, CallInternalApiTool, ListDocumentsTool, QueryDatabaseTool, ReadDocumentTool, RestrictedNetworkTool, RestrictedPythonExecutorTool (+19 more)
 
 ### Community 16 - "post"
 Cohesion: 0.12
@@ -270,8 +270,8 @@ Cohesion: 0.16
 Nodes (8): ToolCallRequest, MockDocToolLLMClient, test_controlled_permitted_approved_public_document(), generate_agent_response(), test_controlled_unauthorized_confidential_salaries_real_pep(), generate_agent_response(), test_4_tool_request_passes_through_authorization_layer(), generate_agent_response()
 
 ### Community 39 - "uuid"
-Cohesion: 0.12
-Nodes (9): ChatResponse, SimulatedBreachResponse, TechniqueRunRequest, chat_endpoint(), mock_attacker_exfiltration_endpoint(), mock_attacker_rendering_tracker(), run_technique_endpoint(), simulate_breach_drill() (+1 more)
+Cohesion: 0.10
+Nodes (13): ChatRequest, JailbreakTurnResult, SimulatedBreachRequest, SimulatedBreachResponse, TechniqueRunRequest, chat_endpoint(), execute_jailbreak_scenario(), lifespan() (+5 more)
 
 ### Community 41 - "JailbreakLibrary"
 Cohesion: 0.25
@@ -386,7 +386,7 @@ Cohesion: 0.50
 Nodes (3): Complaint Categories & Resolution SLA, Customer Support Standard Operating Procedures (SOP), Escalation Matrix
 
 ## Knowledge Gaps
-- **27 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **28 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
