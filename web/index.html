@@ -1086,6 +1086,10 @@
             </p>
           </div>
           <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+            <button id="btn-refresh-ledger-top" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 5px;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Refresh Ledger
+            </button>
             <button id="btn-verify-ledger" class="btn btn-primary btn-sm">Verify Mathematical Proof</button>
             <button id="btn-clear-ledger" class="btn btn-secondary btn-sm">Reset Audit Ledger</button>
           </div>
@@ -1109,10 +1113,16 @@
 
       <!-- Full Audit Ledger Table -->
       <div class="card-panel" style="margin-bottom: 1.25rem;">
-        <div class="panel-header" style="margin-bottom: 0.5rem;">
+        <div class="panel-header" style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <h3 class="panel-title" style="font-size: 0.95rem;">WORM Ledger Blocks</h3>
-            <p class="panel-sub">Each block cryptographically encapsulates the previous block's SHA-256 hash digest.</p>
+            <p class="panel-sub">Each block cryptographically encapsulates the previous block's SHA-256 hash digest.</p>
+          </div>
+          <div>
+            <button id="btn-refresh-ledger-blocks" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; cursor: pointer;" title="Refresh WORM Ledger Blocks">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Refresh Blocks
+            </button>
           </div>
         </div>
         <div class="table-responsive">

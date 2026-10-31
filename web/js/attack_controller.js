@@ -610,7 +610,7 @@ class AttackController {
             if (typeof loadLedger === 'function') loadLedger();
             if (typeof refreshStats === 'function') refreshStats();
           } else if (btn.dataset.tab === "pane-ledger") {
-            this.loadLedgerTable();
+            this.refreshAllLedgers();
           } else if (btn.dataset.tab === "pane-red") {
             this.fetchAgentStatus();
             if (typeof refreshStats === 'function') refreshStats();
@@ -1281,6 +1281,7 @@ class AttackController {
         }
 
         alert(`SIMULATED BREACH DRILL COMPLETED\n\n• Target Fixture: ${data.target_fixture}\n• Slaughter Latency: ${data.slaughter_latency_ms} ms\n• WORM Ledger Block: #${data.audit_record_index}\n• Real PEP Invariant: 100% INTACT (Zero real breaches)`);
+        await this.refreshAllLedgers();
         await this.loadBlueEvents();
         await this.loadSOCDashboard();
         await this.loadSOCIncidents();
@@ -1424,6 +1425,36 @@ class AttackController {
     const verifyBtn = document.getElementById("btn-verify-ledger");
     if (verifyBtn) {
       verifyBtn.addEventListener("click", () => this.openForensicModal());
+    }
+
+    const refreshBlocksBtn = document.getElementById("btn-refresh-ledger-blocks");
+    if (refreshBlocksBtn) {
+      refreshBlocksBtn.addEventListener("click", async () => {
+        refreshBlocksBtn.disabled = true;
+        const origText = refreshBlocksBtn.innerHTML;
+        refreshBlocksBtn.innerHTML = `<span>Refreshing...</span>`;
+        await this.refreshAllLedgers();
+        refreshBlocksBtn.innerHTML = `<span>Refreshed!</span>`;
+        setTimeout(() => {
+          refreshBlocksBtn.innerHTML = origText;
+          refreshBlocksBtn.disabled = false;
+        }, 800);
+      });
+    }
+
+    const refreshTopBtn = document.getElementById("btn-refresh-ledger-top");
+    if (refreshTopBtn) {
+      refreshTopBtn.addEventListener("click", async () => {
+        refreshTopBtn.disabled = true;
+        const origText = refreshTopBtn.innerHTML;
+        refreshTopBtn.innerHTML = `<span>Refreshing...</span>`;
+        await this.refreshAllLedgers();
+        refreshTopBtn.innerHTML = `<span>Refreshed!</span>`;
+        setTimeout(() => {
+          refreshTopBtn.innerHTML = origText;
+          refreshTopBtn.disabled = false;
+        }, 800);
+      });
     }
 
     const closeBtn = document.getElementById("btn-close-modal");
@@ -2483,9 +2514,7 @@ class AttackController {
       if (data && data.trace_stages) {
         this.renderTraceStages(data.trace_stages, data.outcome_type);
       }
-      if (window.aegisDashboard) {
-        window.aegisDashboard.refreshLedgerStatus();
-      }
+      await this.refreshAllLedgers();
       await this.loadBlueEvents();
     } catch (e) {
       alert("Evaluation failed: " + e.message);
@@ -2607,6 +2636,9 @@ class AttackController {
 
     // 5. Render verifiable diagnostic trace stages
     this.renderTraceStages(data.trace_stages, data.outcome_type);
+
+    // 6. Automatically refresh WORM audit ledger after every attack
+    this.refreshAllLedgers();
   }
 
   renderDiagnosticTrace(data) {
@@ -2684,6 +2716,7 @@ class AttackController {
           ? "Mode A: Model-Driven Red Team Evaluation Scorecard"
           : "Mode B: Direct PEP Security Testing Scorecard (Bypasses LLM)";
         this.openScorecardModal(modalTitle, scorecard);
+        await this.refreshAllLedgers();
       } else {
         alert("Failed to execute test matrix: " + res.statusText);
       }
@@ -2711,6 +2744,7 @@ class AttackController {
       if (res.ok) {
         const data = await res.json();
         this.openScenariosScorecardModal("Section 8 Adversarial Evaluation Scorecard", data);
+        await this.refreshAllLedgers();
       } else {
         alert("Failed to run scenarios: " + res.statusText);
       }
@@ -2757,6 +2791,7 @@ class AttackController {
 
         if (res.ok) {
           const evalData = await res.json();
+          await this.refreshAllLedgers();
           const lastTurn = evalData.turns_executed && evalData.turns_executed.length > 0
             ? evalData.turns_executed[evalData.turns_executed.length - 1]
             : null;
@@ -3012,11 +3047,28 @@ class AttackController {
   }
 
 
+  async refreshAllLedgers() {
+    await this.loadLedgerTable();
+    if (window.aegisDashboard && typeof window.aegisDashboard.refreshLedgerStatus === "function") {
+      try {
+        await window.aegisDashboard.refreshLedgerStatus();
+      } catch (err) {
+        console.warn("Error refreshing ledger status:", err);
+      }
+    }
+    if (typeof loadLedger === "function") {
+      try { await loadLedger(); } catch (_) {}
+    }
+    if (typeof refreshStats === "function") {
+      try { refreshStats(); } catch (_) {}
+    }
+  }
+
   async loadLedgerTable() {
     const tbody = document.getElementById("ledger-records-tbody");
     if (!tbody) return;
     try {
-      const res = await fetch("/api/ledger?limit=100");
+      const res = await fetch("/api/ledger?limit=200");
       if (res.ok) {
         const records = await res.json();
         const overviewBlocks = document.getElementById("overview-ledger-blocks");
@@ -3029,19 +3081,23 @@ class AttackController {
         }
         tbody.innerHTML = "";
         if (records.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;">No audit records found.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center; padding: 1.5rem;">No audit records found.</td></tr>';
           return;
         }
-        records.forEach((r) => {
+        // Show newest committed blocks at top so latest attack executions are immediately visible
+        const reversed = [...records].reverse();
+        reversed.forEach((r) => {
           const tr = document.createElement("tr");
           const sevClass = r.severity.includes("CRITICAL") ? "text-red" : (r.severity.includes("HIGH") ? "text-amber" : "text-emerald");
+          const sevBadge = r.severity.includes("CRITICAL") ? "badge-blocked" : (r.severity.includes("HIGH") ? "badge-threat" : "badge-permitted");
+          const zoneBadge = r.source_zone === "RED" ? "badge-blocked" : (r.source_zone === "BLUE" ? "badge-permitted" : "badge-neutral");
           tr.innerHTML = `
-            <td><strong>#${r.index}</strong></td>
-            <td><span class="badge badge-neutral">${r.source_zone}</span></td>
-            <td><strong>${r.event_type}</strong></td>
-            <td><span class="${sevClass}">${r.severity}</span></td>
-            <td class="font-mono text-muted" style="font-size:0.75rem;">${r.previous_hash.substring(0, 12)}...</td>
-            <td class="font-mono text-blue" style="font-size:0.75rem;">${r.current_hash.substring(0, 12)}...${r.current_hash.substring(56)}</td>
+            <td><strong style="color: var(--text-main);">#${r.index}</strong></td>
+            <td><span class="badge ${zoneBadge}">${r.source_zone}</span></td>
+            <td><strong style="font-size: 0.82rem;">${r.event_type}</strong></td>
+            <td><span class="badge ${sevBadge}">${r.severity}</span></td>
+            <td class="font-mono text-muted" style="font-size:0.75rem;" title="${r.previous_hash}">${r.previous_hash.substring(0, 14)}...</td>
+            <td class="font-mono text-blue" style="font-size:0.75rem;" title="${r.current_hash}">${r.current_hash.substring(0, 16)}...${r.current_hash.substring(56)}</td>
           `;
           tbody.appendChild(tr);
         });
@@ -3527,6 +3583,7 @@ class AttackController {
       }
 
       const data = await res.json();
+      await this.refreshAllLedgers();
 
       if (alertEl) {
         alertEl.classList.remove("hidden");

@@ -124,6 +124,13 @@ class AegisDashboard {
         break;
       case "QUARANTINE_ACTION":
         this.onQuarantineAction(data);
+        if (window.attackController && typeof window.attackController.refreshAllLedgers === "function") {
+          window.attackController.refreshAllLedgers();
+        }
+        break;
+      case "LEDGER_BLOCK":
+      case "SECURITY_EVENT":
+        this.refreshLedgerStatus();
         break;
       case "SANDBOX_STATUS":
         this.onSandboxStatus(data);
@@ -261,6 +268,14 @@ class AegisDashboard {
       }
     } catch (e) {
       console.warn("Failed to fetch ledger tip", e);
+    }
+    // Automatically keep the WORM ledger table in sync whenever ledger status updates
+    if (window.attackController && typeof window.attackController.loadLedgerTable === "function") {
+      try {
+        await window.attackController.loadLedgerTable();
+      } catch (err) {
+        console.warn("Failed to update ledger table from dashboard:", err);
+      }
     }
   }
 
