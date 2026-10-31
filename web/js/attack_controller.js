@@ -707,18 +707,20 @@ class AttackController {
             entry.target.classList.add("is-visible");
           }
         });
-      }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+      }, { threshold: 0.05 });
 
       const revealSelectors = [
         ".motion-reveal",
         ".motion-chapter",
-        ".swiss-spec-centered",
         ".motion-interactive-terminal",
         ".swiss-numbers-grid",
         ".swiss-cta-strip",
         ".editorial-pull-quote-block"
       ];
-      document.querySelectorAll(revealSelectors.join(", ")).forEach((el) => observer.observe(el));
+      document.querySelectorAll(revealSelectors.join(", ")).forEach((el) => {
+        el.classList.add("is-visible");
+        observer.observe(el);
+      });
     } else {
       document.querySelectorAll(".motion-reveal, .motion-chapter").forEach((el) => el.classList.add("is-visible"));
     }

@@ -722,7 +722,7 @@
         // Scroll-driven 3D perspective tilt
         const rAdv = stage.getBoundingClientRect();
         const scrollTiltAdv = Math.max(-0.8, Math.min(0.8, (rAdv.top + rAdv.height * 0.5 - window.innerHeight * 0.5) / (window.innerHeight * 0.5)));
-        rootGroup.rotation.x += (scrollTiltAdv * 0.22 - rootGroup.rotation.x) * 0.06;
+        fieldGroup.rotation.x += (scrollTiltAdv * 0.22 - fieldGroup.rotation.x) * 0.06;
 
         // Subtle scientific camera shift
         camera.position.x += (mouseX - camera.position.x) * 0.05;
