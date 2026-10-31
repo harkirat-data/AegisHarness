@@ -397,6 +397,7 @@ AegisHarness provides dynamic, provider-neutral model discovery and evaluation a
 | Model ID | Provider | Parameters | Quantization | License | Capabilities |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `qwen2.5:3b` *(Default)* | Alibaba / Qwen | 3.1B | Q4_K_M (~1.9 GB) | Apache 2.0 | Tools, Structured JSON, RAG |
+| `gemma4:e2b` | Google DeepMind | 2B (Effective) | Q4_K_M (~2.1 GB) | Gemma Terms | Multimodal, Reasoning, Tools, Edge |
 | `gemma2:2b` | Google DeepMind | 2.6B | Q4_K_M (~1.6 GB) | Gemma Terms | Completion, RAG, Safety Track |
 | `llama3.2:3b` | Meta AI | 3.2B | Q4_K_M (~2.0 GB) | Llama 3.2 Community | Tools, Dialogue, Open-Weight Track |
 | `deepseek-r1:1.5b` | DeepSeek-AI | 1.5B | Q4_K_M (~1.1 GB) | MIT | Distilled Chain-of-Thought, Reasoning |

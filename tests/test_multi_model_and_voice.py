@@ -26,6 +26,7 @@ def test_supported_model_catalog_structure():
     # Required competition & open-weight models
     assert "qwen2.5:3b" in model_ids
     assert "gemma2:2b" in model_ids
+    assert "gemma4:e2b" in model_ids
     assert "llama3.2:3b" in model_ids
     assert "deepseek-r1:1.5b" in model_ids
 
@@ -46,6 +47,9 @@ def test_missing_model_honesty():
     gemma = next((m for m in catalog if m["id"] == "gemma2:2b"), None)
     assert gemma is not None
     assert "ollama pull gemma2:2b" in gemma["pull_command"]
+    gemma4 = next((m for m in catalog if m["id"] == "gemma4:e2b"), None)
+    assert gemma4 is not None
+    assert "ollama pull gemma4:e2b" in gemma4["pull_command"]
 
 
 def test_voice_service_status_unconfigured():

@@ -161,7 +161,7 @@ def run_cli():
     parser.add_argument("--scope", default="general", help="Target resource scope (e.g. database, document, api)")
     parser.add_argument("--model", default=None, help="Target model identifier (optional override)")
     parser.add_argument("--compare", action="store_true", help="Run comparative evaluation across multiple models")
-    parser.add_argument("--models", nargs="+", default=["qwen2.5:3b", "gemma2:2b", "llama3.2:3b"], help="Models to compare")
+    parser.add_argument("--models", nargs="+", default=["qwen2.5:3b", "gemma4:e2b", "gemma2:2b", "llama3.2:3b"], help="Models to compare")
     parser.add_argument("--simulate", action="store_true", help="Simulate without real local LLM")
     parser.add_argument("--format", choices=["text", "json"], default="text", help="Output formatting")
 

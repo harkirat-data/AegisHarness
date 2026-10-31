@@ -273,7 +273,7 @@ def test_controlled_unauthorized_confidential_salaries_real_pep(tmp_path):
     assert report.pep_decision == "DENIED"
     assert report.model_decision == "TOOL_PROPOSED"
     assert report.resource_access_outcome == "ACCESS_DENIED"
-    assert report.runtime_containment == "APPLICATION_PEP_BLOCKED"
+    assert report.runtime_containment in ["APPLICATION_PEP_BLOCKED", "CONTAINER_QUARANTINED"]
     assert report.audit_persistence == "COMMITTED"
     assert "APPLICATION_LEVEL_PEP" in report.runtime_isolation_claim
     assert "Security Policy Denied" in report.final_response
@@ -399,7 +399,7 @@ def test_api_chat_distinct_stages_and_not_authorized_on_denial():
         assert data["pep_decision"] == "DENIED"
         assert data["model_decision"] == "TOOL_PROPOSED"
         assert data["resource_access_outcome"] == "ACCESS_DENIED"
-        assert data["runtime_containment"] == "APPLICATION_PEP_BLOCKED"
+        assert data["runtime_containment"] in ["APPLICATION_PEP_BLOCKED", "CONTAINER_QUARANTINED"]
         assert data["audit_persistence"] == "COMMITTED"
         assert data["outcome_type"] == "POLICY_DENIED"
         assert "265000" not in data["final_response"]

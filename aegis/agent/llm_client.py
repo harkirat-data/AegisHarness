@@ -41,6 +41,19 @@ SUPPORTED_MODEL_CATALOG = [
         "description": "Google Gemma 2 open-weight model built for high-efficiency edge evaluation and safety auditing."
     },
     {
+        "id": "gemma4:e2b",
+        "name": "Google Gemma 4 E2B",
+        "provider": "Google DeepMind",
+        "family": "gemma4",
+        "parameter_size": "2B (Effective)",
+        "quantization": "Q4_K_M (~2.1 GB)",
+        "license": "Gemma Terms of Use",
+        "recommended_vram_mb": 2200,
+        "capabilities": ["tools", "structured_json", "rag", "safety_alignment", "multimodal"],
+        "pull_command": "ollama pull gemma4:e2b",
+        "description": "Google DeepMind Gemma 4 lightweight 2B edge model optimized for low-latency reasoning on 4GB VRAM hardware."
+    },
+    {
         "id": "llama3.2:3b",
         "name": "Meta Llama 3.2 3B",
         "provider": "Meta AI",
