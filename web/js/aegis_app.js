@@ -884,18 +884,27 @@ async function triggerManualQuarantine() {
 
 // ===== QUARANTINE BANNER =====
 function showQuarantineBanner(reason) {
-  const banner = document.getElementById('quarantine-banner');
-  const reasonEl = document.getElementById('quarantine-reason');
-  if (banner && reasonEl) {
-    reasonEl.textContent = ` — ${reason}`;
+  const banner = document.getElementById('threat-hud-banner') || document.getElementById('quarantine-banner');
+  const reasonEl = document.getElementById('hud-threat-desc') || document.getElementById('quarantine-reason');
+  const latencyEl = document.getElementById('hud-latency');
+  if (banner) {
+    if (reasonEl) reasonEl.textContent = reason;
+    if (latencyEl && reason && reason.includes('slaughtered in')) {
+      const match = reason.match(/slaughtered in\s+([\d\.]+ms)/i);
+      if (match) latencyEl.textContent = `${match[1]} slaughter`;
+    }
     banner.classList.remove('hidden');
+    banner.style.display = 'block';
   }
   updateSandboxStateChips('QUARANTINED');
 }
 
 function dismissQuarantine() {
-  const banner = document.getElementById('quarantine-banner');
-  if (banner) banner.classList.add('hidden');
+  const banner = document.getElementById('threat-hud-banner') || document.getElementById('quarantine-banner');
+  if (banner) {
+    banner.classList.add('hidden');
+    banner.style.display = 'none';
+  }
   if (!state.isQuarantined) {
     updateSandboxStateChips('ACTIVE');
   }
@@ -1096,6 +1105,11 @@ async function init() {
   // Pre-fill Blue Team operator kill switch with active session ID
   const qInput = document.getElementById('quarantine-session');
   if (qInput) qInput.value = state.sessionId;
+
+  const dismissBtn = document.getElementById('btn-dismiss-hud');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', dismissQuarantine);
+  }
 
   // Initialize active disposable sandbox for initial session
   fetch('/api/sandbox/provision', {

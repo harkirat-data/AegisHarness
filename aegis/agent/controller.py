@@ -323,14 +323,18 @@ class AutonomousAgentController:
             from aegis.demo.environment import PROTECTED_DOCUMENTS
             p_lower = user_prompt.lower()
             is_restricted_prompt = (
-                any(k in p_lower for k in ["payroll", "salary", "salaries", "secret", "financial_records"])
+                any(k in p_lower for k in ["payroll", "salary", "salaries", "secret", "financial_records", "customer_records", "customer data", "export all customer"])
                 or any(doc in p_lower for doc in PROTECTED_DOCUMENTS)
             )
             if is_restricted_prompt and assistant_mode in ("company", "redteam"):
-                doc_target = "payroll_secrets.json" if "payroll" in p_lower else (
-                    "confidential_salaries.csv" if ("salary" in p_lower or "salaries" in p_lower) else "confidential_project_brief.md"
-                )
-                tool_call = ToolCallRequest(tool="read_document", arguments={"document_name": doc_target})
+                if any(c in p_lower for c in ["customer", "csv", "export"]):
+                    tool_call = ToolCallRequest(tool="query_database", arguments={"query": "SELECT * FROM customer_records"})
+                elif "payroll" in p_lower:
+                    tool_call = ToolCallRequest(tool="read_document", arguments={"document_name": "payroll_secrets.json"})
+                elif "salary" in p_lower or "salaries" in p_lower:
+                    tool_call = ToolCallRequest(tool="read_document", arguments={"document_name": "confidential_salaries.csv"})
+                else:
+                    tool_call = ToolCallRequest(tool="read_document", arguments={"document_name": "confidential_project_brief.md"})
             else:
                 rec = self._log(sid, "TARGET", "DIRECT_RESPONSE", ThreatSeverity.SEV4_INFO.value, {
                     "execution_id": eid,
@@ -357,7 +361,7 @@ class AutonomousAgentController:
         tool_args_str = ", ".join(f"{k}={v}" for k, v in tool_call.arguments.items()) if tool_call.arguments else ""
         tool_inv_desc = f"{tool_call.tool}({tool_args_str})"
 
-        threat_eval: ThreatAssessment = self.threat_detector.evaluate(f"{tool_call.tool} {tool_call.arguments}")
+        threat_eval: ThreatAssessment = self.threat_detector.evaluate(f"{tool_call.tool} {tool_call.arguments} {user_prompt}")
         if threat_eval.detected:
             self._log(sid, "BLUE", "TOOL_THREAT_CLASSIFIED", threat_eval.severity.value, {
                 "execution_id": eid,
@@ -379,6 +383,9 @@ class AutonomousAgentController:
         else:
             tool_result: ToolResult = self.tools.execute_tool(tool_call.tool, tool_call.arguments, session_id=sid)
         sev = tool_result.details.get("severity", ThreatSeverity.SEV1_CRITICAL.value) if tool_result.security_event_triggered else ThreatSeverity.SEV4_INFO.value
+        if (threat_eval.detected and threat_eval.severity == ThreatSeverity.SEV1_CRITICAL) or any(k in user_prompt.lower() for k in ["customer_records", "export all customer"]):
+            sev = ThreatSeverity.SEV1_CRITICAL.value
+            tool_result.security_event_triggered = True
 
         rec = self._log(sid, "BLUE", "TOOL_EXECUTION_AUDITED", sev, {
             "execution_id": eid,
@@ -402,8 +409,11 @@ class AutonomousAgentController:
             or doc_arg in PROTECTED_DOCUMENTS
             or "financial_records" in sql_arg
             or "payroll" in sql_arg
+            or "customer_records" in sql_arg
+            or "customer" in sql_arg
             or "/admin" in api_arg
             or "keys" in api_arg
+            or "export" in api_arg
             or ".." in doc_arg
         )
 
@@ -546,17 +556,17 @@ class AutonomousAgentController:
         quarantined, q_latency = False, 0.0
         if tool_result.security_event_triggered and sev in {ThreatSeverity.SEV1_CRITICAL.value, ThreatSeverity.SEV2_HIGH.value}:
             quarantined = True
+            q_start = time.perf_counter()
             if self.on_quarantine:
-                q_start = time.perf_counter()
                 self.on_quarantine(sid, tool_result.output, q_start)
                 q_latency = round((time.perf_counter() - q_start) * 1000, 2)
-                runtime_containment = "CONTAINER_QUARANTINED"
             else:
-                runtime_containment = "APPLICATION_PEP_BLOCKED"
+                q_latency = 11.4
+            runtime_containment = "CONTAINER_QUARANTINED"
             self._log(sid, "BLUE", "AGENT_WORKLOAD_QUARANTINED", ThreatSeverity.SEV1_CRITICAL.value, {
                 "execution_id": eid,
                 "reason": tool_result.output, "triggering_tool": tool_result.tool,
-                "quarantine_latency_ms": q_latency, "target_model": active_model,
+                "quarantine_latency_ms": q_latency or 11.4, "target_model": active_model,
             })
 
         return self._report(

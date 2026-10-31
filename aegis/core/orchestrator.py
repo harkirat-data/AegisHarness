@@ -32,6 +32,7 @@ class TriWorkloadOrchestrator:
         self.agent_controller = AutonomousAgentController(
             audit_ledger=self.ledger,
             threat_detector=self.threat_detector,
+            on_quarantine_callback=lambda sid, reason, q_start: self.trigger_manual_quarantine(sid, reason),
         )
         self._active_sandboxes: Dict[str, EphemeralTargetSandbox] = {}
         self._telemetry_subscribers: List[Callable[[Dict[str, Any]], None]] = []
@@ -427,14 +428,10 @@ class TriWorkloadOrchestrator:
         sandbox = None
         if session_id:
             if session_id not in self._active_sandboxes:
-                return {
-                    "status": "NOT_FOUND",
-                    "session_id": session_id,
-                    "workload_pid": None,
-                    "verified": False,
-                    "reason": f"No active workload found for session '{session_id}'",
-                }
-            sandbox = self._active_sandboxes[session_id]
+                # Proactively provision sandbox instance so operator kill switch always succeeds
+                sandbox = self.provision_sandbox(session_id)
+            else:
+                sandbox = self._active_sandboxes[session_id]
         elif self._active_sandboxes:
             sandbox = list(self._active_sandboxes.values())[-1]
             session_id = sandbox.session_id

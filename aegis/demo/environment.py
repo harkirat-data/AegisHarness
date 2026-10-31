@@ -742,11 +742,11 @@ def query_demo_database(query: str) -> Dict[str, Any]:
         }
 
     # Strict table authorization check
-    if any(t in clean_lower for t in ["financial_records", "credit_card", "restricted_salaries", "salaries", "payroll", "clearance_code"]):
+    if any(t in clean_lower for t in ["financial_records", "credit_card", "restricted_salaries", "salaries", "payroll", "clearance_code", "customer_records", "customer_data"]):
         return {
             "success": False,
             "policy_violation": True,
-            "reason": "Access Denied: Table or resource 'restricted_salaries' / 'financial_records' is restricted by zero-trust policy. Access requires elevated executive authorization.",
+            "reason": "Access Denied: Table or resource 'customer_records' / 'financial_records' is restricted by zero-trust policy. Access requires elevated executive authorization.",
         }
 
     allowed_tables = {"customers", "customer_complaints", "employees", "department_budgets", "internal_project_records"}

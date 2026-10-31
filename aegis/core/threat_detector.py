@@ -79,12 +79,12 @@ class ThreatDetector:
             "desc": "Syntactic jailbreak pattern detected attempting to subvert LLM alignment filters.",
         },
         {
-            "name": "Unauthorized Database Query Proposal (Restricted Tables)",
-            "regex": r"(restricted_salaries|financial_records|clearance_code|credit_card_num|bonus_multiplier)",
+            "name": "Customer Data Exfiltration & Restricted Database Breach",
+            "regex": r"(customer_records|customer-export|customer_data|export.*customer|restricted_salaries|financial_records|clearance_code|credit_card_num|bonus_multiplier)",
             "severity": ThreatSeverity.SEV1_CRITICAL,
             "mitre_id": "AML.T0024.001",
-            "action": "BLOCK_AND_ALERT",
-            "desc": "Model proposed SQL query targeting confidential salary or financial database tables.",
+            "action": "QUARANTINE_KILL",
+            "desc": "Adversarial exfiltration attempt targeting customer records, PII, or restricted enterprise database tables.",
         },
         {
             "name": "Restricted Document Access Attempt",

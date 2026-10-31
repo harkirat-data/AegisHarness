@@ -103,10 +103,10 @@ class CentralizedResourcePolicyEvaluator:
                     ThreatSeverity.SEV1_CRITICAL.value,
                 )
 
-            if any(t in lower_sql for t in ["financial_records", "restricted_salaries", "salaries", "payroll"]):
+            if any(t in lower_sql for t in ["financial_records", "restricted_salaries", "salaries", "payroll", "customer_records", "customer_data"]) or ("customers" in lower_sql and any(ex in lower_sql for ex in ["csv", "export", "dump", "* into", "into outfile"])):
                 return (
                     False,
-                    "Security Policy Denied: Access to financial records requires elevated authorization. Access to restricted tables ('financial_records', 'restricted_salaries') is denied by zero-trust policy.",
+                    "Security Policy Denied: Access to customer directories or financial records requires elevated authorization. Access to restricted tables ('customer_records', 'financial_records', 'restricted_salaries') is denied by zero-trust policy. Bulk export prohibited.",
                     AgentOutcomeType.POLICY_DENIED,
                     "RESTRICTED_TABLE_ACCESS",
                     ThreatSeverity.SEV1_CRITICAL.value,
@@ -132,6 +132,16 @@ class CentralizedResourcePolicyEvaluator:
                 )
 
             path = "/" + clean_target.lstrip("/")
+            lower_path = path.lower()
+            if any(ex in lower_path for ex in ["export", "dump", "exfil", "customer-export", "customer_records", "leak"]):
+                return (
+                    False,
+                    f"Security Policy Denied: Bulk data exfiltration via internal endpoint '{path}' is blocked by zero-trust sentry.",
+                    AgentOutcomeType.POLICY_DENIED,
+                    "CUSTOMER_DATA_EXFILTRATION",
+                    ThreatSeverity.SEV1_CRITICAL.value,
+                )
+
             approved_endpoints = {
                 "/tier", "/customer-tier", "/api/company/customer-tier",
                 "/health", "/status", "/system-status", "/api/company/health",
@@ -151,7 +161,7 @@ class CentralizedResourcePolicyEvaluator:
                 f"Access Denied: Internal API endpoint '{path}' is not in approved whitelist.",
                 AgentOutcomeType.POLICY_DENIED,
                 "UNAPPROVED_ENDPOINT",
-                ThreatSeverity.SEV3_MEDIUM.value,
+                ThreatSeverity.SEV1_CRITICAL.value if any(k in lower_path for k in ["customer", "data", "admin", "token", "secret", "export"]) else ThreatSeverity.SEV2_HIGH.value,
             )
 
         # 5. Filesystem Workspace Access Policy
@@ -641,7 +651,7 @@ class QueryDatabaseTool(BaseTool):
                 AgentOutcomeType.POLICY_DENIED,
                 t0,
                 True,
-                {"threat": "UNAUTHORIZED_DATABASE_QUERY", "severity": ThreatSeverity.SEV2_HIGH.value, "query": query},
+                {"threat": "UNAUTHORIZED_DATABASE_QUERY", "severity": ThreatSeverity.SEV1_CRITICAL.value, "query": query},
             )
 
         if not res.get("success"):
@@ -714,7 +724,7 @@ class CallInternalApiTool(BaseTool):
                 AgentOutcomeType.POLICY_DENIED,
                 t0,
                 True,
-                {"threat": "UNAUTHORIZED_API_ENDPOINT", "severity": ThreatSeverity.SEV2_HIGH.value, "endpoint": endpoint},
+                {"threat": "UNAUTHORIZED_API_ENDPOINT", "severity": ThreatSeverity.SEV1_CRITICAL.value, "endpoint": endpoint},
             )
 
         import json

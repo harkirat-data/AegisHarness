@@ -2614,3 +2614,37 @@ body.view-dashboard select {
   border-color: #D8CFBF !important;
   color: #1A1A1A !important;
 }
+
+
+/* Operator Kill Switch Card */
+.killswitch-card {
+  margin: 14px !important;
+  padding: 16px !important;
+  border: 1px solid #F2C3BC !important;
+  border-radius: 6px !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 1px 4px rgba(178, 58, 34, 0.08) !important;
+}
+
+.killswitch-card .quarantine-input {
+  background: #FAF8F5 !important;
+  border: 1px solid #E2DDD5 !important;
+  color: #1A1A1A !important;
+  border-radius: 4px !important;
+  padding: 0 12px !important;
+  height: 38px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.8rem !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.killswitch-card .quarantine-input:focus {
+  border-color: #B23A22 !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 0 0 2px rgba(178, 58, 34, 0.12) !important;
+}
+
+.killswitch-card #btn-manual-kill:hover {
+  background: #8B1E0F !important;
+  transform: translateY(-1px);
+}
