@@ -714,6 +714,7 @@ class AttackController {
       }, { threshold: 0.05 });
 
       const revealSelectors = [
+        ".swiss-spec-reveal",
         ".motion-reveal",
         ".motion-chapter",
         ".motion-interactive-terminal",
