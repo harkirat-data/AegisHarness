@@ -25,3 +25,4 @@ draw.text((width//2, 540), "Challenge AI agents. Expose unauthorized actions. Ve
 
 img.save(r"brag-output\work\test_frame.png")
 print("SUCCESS: test_frame.png created")
+

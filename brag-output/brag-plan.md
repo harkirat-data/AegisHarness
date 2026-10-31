@@ -87,3 +87,4 @@ Can your autonomous AI agent be trusted? Put it to the test. AegisHarness enforc
 - Subhead: `The Architecture of Unyielding Zero-Trust Containment.`
 - Coordinates: `Kolkata, West Bengal • CCU 22°34'N 88°22'E • Open Source on GitHub`
 - Audio: Fades out gently over the last 1.5s to absolute silence.
+

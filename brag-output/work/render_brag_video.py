@@ -406,3 +406,4 @@ def render_full_video():
 
 if __name__ == "__main__":
     render_full_video()
+

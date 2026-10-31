@@ -41,3 +41,4 @@ if res.returncode == 0:
     print("SUCCESS: Audio mix generated at", OUTPUT)
 else:
     print("ERROR:", res.stderr)
+
