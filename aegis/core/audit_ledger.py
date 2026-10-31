@@ -162,11 +162,15 @@ class TamperProofAuditLedger:
             return [r.to_dict() for r in records[-limit:]]
 
     def clear(self):
-        """Used in test fixtures only"""
+        """Reset ledger in memory and truncate on-disk persistence"""
         with self._lock:
             self._records.clear()
             if self.ledger_path and os.path.exists(self.ledger_path):
-                os.remove(self.ledger_path)
+                try:
+                    with open(self.ledger_path, "w", encoding="utf-8") as f:
+                        pass
+                except Exception as e:
+                    print(f"Warning: Failed to truncate ledger file: {e}")
 
     def _load_existing_ledger(self):
         if not self.ledger_path or not os.path.exists(self.ledger_path):

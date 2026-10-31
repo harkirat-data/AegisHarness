@@ -1101,11 +1101,11 @@
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
           <div>
             <span style="font-size: 0.72rem; color: var(--text-muted); display: block;">Active Ledger Tip Hash (SHA-256):</span>
-            <span id="ledger-tip-hash" class="font-mono text-blue" style="font-size: 0.85rem; font-weight: 600;">000000000000000000000000...</span>
+            <span id="ledger-tip-hash" class="font-mono text-muted" style="font-size: 0.85rem; font-weight: 600;">Awaiting initial attack execution...</span>
           </div>
           <div style="text-align: right;">
             <span style="font-size: 0.72rem; color: var(--text-muted); display: block;">Integrity Proof Status:</span>
-            <strong id="ledger-verify-text" class="text-emerald" style="font-size: 0.85rem;">Ready for Verification</strong>
+            <strong id="ledger-verify-text" class="text-muted" style="font-size: 0.85rem;">Clean Ledger (0 Blocks)</strong>
             <span style="font-size: 0.72rem; color: var(--text-muted);"> (<span id="block-count">0</span> blocks committed)</span>
           </div>
         </div>
@@ -1139,8 +1139,9 @@
             </thead>
             <tbody id="ledger-records-tbody">
               <tr>
-                <td colspan="6" class="text-muted" style="text-align: center; padding: 1.5rem;">
-                  Loading audit ledger records...
+                <td colspan="6" class="text-muted" style="text-align: center; padding: 2rem;">
+                  <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; color: var(--text-main);">No Audit Blocks Committed Yet</div>
+                  <div style="font-size: 0.78rem; color: var(--text-muted);">The WORM ledger is clean. Dispatch an attack or evaluation in Red Zone to generate real-time SHA-256 blocks.</div>
                 </td>
               </tr>
             </tbody>

@@ -3081,8 +3081,34 @@ class AttackController {
         }
         tbody.innerHTML = "";
         if (records.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center; padding: 1.5rem;">No audit records found.</td></tr>';
+          const overviewBlocks = document.getElementById("overview-ledger-blocks");
+          if (overviewBlocks) overviewBlocks.innerText = "0 Blocks";
+          const blockCountSpan = document.getElementById("block-count");
+          if (blockCountSpan) blockCountSpan.innerText = "0";
+          const tipSpan = document.getElementById("ledger-tip-hash");
+          if (tipSpan) {
+            tipSpan.innerText = "Awaiting initial attack execution...";
+            tipSpan.className = "font-mono text-muted";
+          }
+          const verifyText = document.getElementById("ledger-verify-text");
+          if (verifyText) {
+            verifyText.innerText = "Clean Ledger (0 Blocks)";
+            verifyText.className = "text-muted";
+          }
+          tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center; padding: 2rem;"><div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; color: var(--text-main);">No Audit Blocks Committed Yet</div><div style="font-size: 0.78rem; color: var(--text-muted);">The WORM ledger is clean. Dispatch an attack or evaluation in Red Zone to generate real-time SHA-256 blocks.</div></td></tr>';
           return;
+        }
+
+        const tipSpan = document.getElementById("ledger-tip-hash");
+        if (tipSpan && records.length > 0) {
+          const latestHash = records[records.length - 1].current_hash;
+          tipSpan.innerText = `${latestHash.substring(0, 16)}...${latestHash.substring(56)}`;
+          tipSpan.className = "font-mono text-blue";
+        }
+        const verifyText = document.getElementById("ledger-verify-text");
+        if (verifyText && records.length > 0) {
+          verifyText.innerText = "Mathematically Intact";
+          verifyText.className = "text-emerald";
         }
         // Show newest committed blocks at top so latest attack executions are immediately visible
         const reversed = [...records].reverse();

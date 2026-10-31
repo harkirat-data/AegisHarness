@@ -256,14 +256,25 @@ class AegisDashboard {
         if (blockSpan) blockSpan.innerText = data.block_count;
 
         const tipSpan = document.getElementById("ledger-tip-hash");
-        if (tipSpan && data.tip_hash) {
-          tipSpan.innerText = `${data.tip_hash.substring(0, 16)}...${data.tip_hash.substring(56)}`;
+        if (tipSpan) {
+          if (data.tip_hash && data.block_count > 0) {
+            tipSpan.innerText = `${data.tip_hash.substring(0, 16)}...${data.tip_hash.substring(56)}`;
+            tipSpan.className = "font-mono text-blue";
+          } else {
+            tipSpan.innerText = "Awaiting initial attack execution...";
+            tipSpan.className = "font-mono text-muted";
+          }
         }
 
         const verifyText = document.getElementById("ledger-verify-text");
         if (verifyText) {
-          verifyText.innerText = data.is_valid ? "Mathematically Intact" : "INTEGRITY COMPROMISED";
-          verifyText.className = data.is_valid ? "text-emerald" : "text-red";
+          if (data.block_count > 0) {
+            verifyText.innerText = data.is_valid ? "Mathematically Intact" : "INTEGRITY COMPROMISED";
+            verifyText.className = data.is_valid ? "text-emerald" : "text-red";
+          } else {
+            verifyText.innerText = "Clean Ledger (0 Blocks)";
+            verifyText.className = "text-muted";
+          }
         }
       }
     } catch (e) {
