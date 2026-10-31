@@ -627,6 +627,8 @@ class AttackController {
     const dashboardView = document.getElementById("dashboard-view");
     const headerTopPills = document.getElementById("header-top-pills");
     const heroLaunchBtn = document.getElementById("btn-hero-launch-dashboard");
+    const navGetStartedBtn = document.getElementById("btn-nav-get-started");
+    const heroGetStartedBtn = document.getElementById("btn-hero-get-started");
     const headerBackBtn = document.getElementById("btn-header-back-landing");
     const brandHomeBtn = document.getElementById("brand-home-link");
 
@@ -635,6 +637,7 @@ class AttackController {
       if (dashboardView) dashboardView.style.display = "block";
       if (headerTopPills) headerTopPills.style.display = "flex";
       if (headerBackBtn) headerBackBtn.style.display = "inline-flex";
+      if (navGetStartedBtn) navGetStartedBtn.style.display = "none";
       const targetTab = tabId.replace("pane-", "");
       const tabBtn = document.getElementById(`tab-${targetTab}`);
       if (tabBtn) tabBtn.click();
@@ -646,6 +649,7 @@ class AttackController {
       if (landingView) landingView.style.display = "block";
       if (headerTopPills) headerTopPills.style.display = "none";
       if (headerBackBtn) headerBackBtn.style.display = "none";
+      if (navGetStartedBtn) navGetStartedBtn.style.display = "inline-flex";
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
@@ -658,6 +662,22 @@ class AttackController {
     if (typeof initMagneticButtons === "function") initMagneticButtons();
 
     if (heroLaunchBtn) heroLaunchBtn.addEventListener("click", () => showDashboard("pane-company"));
+    if (navGetStartedBtn) navGetStartedBtn.addEventListener("click", () => showDashboard("pane-company"));
+    if (heroGetStartedBtn) heroGetStartedBtn.addEventListener("click", () => showDashboard("pane-company"));
+
+    document.querySelectorAll(".nav-link-item").forEach((link) => {
+      link.addEventListener("click", (e) => {
+        const href = link.getAttribute("href");
+        if (href && href.startsWith("#")) {
+          e.preventDefault();
+          showLanding();
+          const target = document.querySelector(href);
+          if (target) {
+            target.scrollIntoView({ behavior: "smooth" });
+          }
+        }
+      });
+    });
     if (headerBackBtn) headerBackBtn.addEventListener("click", () => showLanding());
     if (brandHomeBtn) {
       brandHomeBtn.addEventListener("click", (e) => {

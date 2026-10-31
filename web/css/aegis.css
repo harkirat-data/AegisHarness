@@ -2175,3 +2175,238 @@ body {
   overflow: hidden;
   background: radial-gradient(circle at center, #FAF8F5 0%, #F4EFE6 100%) !important;
 }
+
+/* ========================================================================= */
+/* SWISS EDITORIAL HERO & SPECIFICATION STYLES (MATCHING SCREENSHOT 1 & 2)   */
+/* ========================================================================= */
+
+/* Navbar center links & right actions */
+.nav-center-links {
+  display: flex;
+  align-items: center;
+  gap: 2.25rem;
+}
+
+.nav-link-item {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #4A4A4A;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.nav-link-item:hover {
+  color: #1A1A1A;
+}
+
+.nav-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-nav-cta {
+  padding: 0.55rem 1.4rem !important;
+  font-size: 0.85rem !important;
+}
+
+/* Primary Centered Hero Section (Screenshot 1) */
+.hero-top-centered {
+  padding: 4.5rem 1.5rem 4rem;
+  max-width: 980px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.hero-top-heading {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(2.8rem, 5.6vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  color: #1A1A1A;
+  margin: 0 auto 1.5rem;
+}
+
+.hero-top-heading .inline-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  position: relative;
+  top: -0.06em;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hero-top-heading .inline-badge:hover {
+  transform: scale(1.08) translateY(-1px);
+}
+
+.hero-top-heading .badge-black {
+  background: #1A1A1A;
+  width: 2.35rem;
+  height: 2.35rem;
+  margin: 0 0.35rem;
+  color: #FFFFFF;
+}
+
+.hero-top-heading .highlight-trusted {
+  color: #D95338;
+}
+
+.hero-top-heading .badge-terracotta {
+  background: #D95338;
+  width: 2.55rem;
+  height: 2.35rem;
+  margin: 0 0.35rem;
+  color: #FFFFFF;
+}
+
+.hero-top-subtitle {
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 1.08rem;
+  font-weight: 400;
+  color: #6E6B66;
+  max-width: 660px;
+  margin: 0 auto 2.25rem;
+  line-height: 1.6;
+}
+
+.hero-top-cta-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.15rem;
+  flex-wrap: wrap;
+}
+
+.btn-pill-black {
+  background: #1A1A1A;
+  color: #FAF8F5;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.85rem 2.2rem;
+  border-radius: 9999px;
+  border: 1px solid #1A1A1A;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-pill-black:hover {
+  background: #000000;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.btn-pill-outline {
+  background: transparent;
+  color: #1A1A1A;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.85rem 2.2rem;
+  border-radius: 9999px;
+  border: 1px solid #D8D2C6;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-pill-outline:hover {
+  background: #EBE5DA;
+  border-color: #1A1A1A;
+  transform: translateY(-2px);
+}
+
+/* Centered Swiss Specification Section (Screenshot 2) */
+.swiss-spec-centered {
+  max-width: 880px;
+  margin: 2.5rem auto 3.5rem;
+  text-align: center;
+  padding-bottom: 2.5rem;
+  border-bottom: 1px solid #E2DDD5;
+}
+
+.swiss-spec-hero-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5rem;
+  margin: 1.25rem 0;
+}
+
+.swiss-title-raster-centered {
+  font-size: clamp(3rem, 5.5vw, 4.4rem);
+  line-height: 0.95;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: #1A1A1A;
+  text-align: left;
+}
+
+.swiss-graphic-circle-centered {
+  width: 125px;
+  height: 125px;
+  min-width: 125px;
+  background: #B23A22;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.05em;
+  box-shadow: 0 12px 32px rgba(178, 58, 34, 0.32);
+}
+
+.editorial-lead-centered {
+  font-size: 1.08rem;
+  line-height: 1.8;
+  color: #4A4A4A;
+  max-width: 780px;
+  margin: 1.5rem auto 1.75rem;
+  text-align: center;
+}
+
+.editorial-dropcap-char {
+  font-family: var(--font-serif);
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: #B23A22;
+  vertical-align: baseline;
+  margin-right: 1px;
+}
+
+.spec-badges-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 1.5rem 0 2rem;
+}
+
+.badge-spec {
+  background: #FAF8F5;
+  border: 1px solid #D8D2C6;
+  color: #1A1A1A;
+  font-family: 'Fira Code', monospace;
+  padding: 6px 14px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  border-radius: 4px;
+}

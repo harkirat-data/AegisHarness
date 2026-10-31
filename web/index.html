@@ -27,24 +27,35 @@
       </div>
       <div>
         <h1 class="brand-title">Aegis<span>Harness</span></h1>
-        <p class="brand-sub">Tri-Workload Zero-Trust Evaluation &amp; Containment Sandbox</p>
       </div>
     </div>
 
-    <div class="top-pills" id="header-top-pills" style="display: none;">
-      <button id="btn-header-back-landing" class="btn btn-editorial-outline btn-sm">&larr; Landing Page</button>
-      <div class="status-pill-top">
-        <span>Target Model:</span>
-        <select id="global-model-selector" class="form-select form-select-sm" style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; font-size:0.75rem; padding: 2px 8px; color: var(--text-main); font-weight:600;">
-          <option value="qwen2.5:3b" selected>qwen2.5:3b (3.1B Q4_K_M)</option>
-          <option value="gemma2:2b">gemma2:2b (2.6B Q4_0)</option>
-          <option value="llama3.2:3b">llama3.2:3b (3.2B Q4_K_M)</option>
-        </select>
-      </div>
-      <div class="status-pill-top">
-        <span>Telemetry Stream:</span>
-        <span id="socket-indicator" class="pulse-dot"></span>
-        <strong id="socket-status">Connecting...</strong>
+    <!-- Centered Nav Links (Matching Screenshot 1) -->
+    <nav class="nav-center-links" id="nav-center-links">
+      <a href="#spec-section" class="nav-link-item">Product</a>
+      <a href="#zones-section" class="nav-link-item">How It Works</a>
+      <a href="#sim-section" class="nav-link-item">Security</a>
+    </nav>
+
+    <!-- Right Actions -->
+    <div class="nav-right-actions">
+      <button id="btn-nav-get-started" class="btn-pill-black btn-nav-cta">Get Started</button>
+
+      <div class="top-pills" id="header-top-pills" style="display: none;">
+        <button id="btn-header-back-landing" class="btn btn-editorial-outline btn-sm">&larr; Landing Page</button>
+        <div class="status-pill-top">
+          <span>Target Model:</span>
+          <select id="global-model-selector" class="form-select form-select-sm" style="background:#fff; border:1px solid #cbd5e1; border-radius:4px; font-size:0.75rem; padding: 2px 8px; color: var(--text-main); font-weight:600;">
+            <option value="qwen2.5:3b" selected>qwen2.5:3b (3.1B Q4_K_M)</option>
+            <option value="gemma2:2b">gemma2:2b (2.6B Q4_0)</option>
+            <option value="llama3.2:3b">llama3.2:3b (3.2B Q4_K_M)</option>
+          </select>
+        </div>
+        <div class="status-pill-top">
+          <span>Telemetry Stream:</span>
+          <span id="socket-indicator" class="pulse-dot"></span>
+          <strong id="socket-status">Connecting...</strong>
+        </div>
       </div>
     </div>
   </header>
@@ -56,7 +67,30 @@
     <main class="main-content" style="max-width: 1280px; margin: 1.5rem auto;">
       <div class="swiss-editorial-spread">
         <!-- Editorial Masthead (Magazine Publication Header) -->
-        <header class="editorial-masthead">
+        <!-- Primary Centered Hero Section (Exact Match to Screenshot 1) -->
+        <section class="hero-top-centered">
+          <h1 class="hero-top-heading">
+            Can your AI <span class="inline-badge badge-black" title="Autonomous AI Agent"><svg viewBox="0 0 24 24" width="16" height="16" fill="white"><path d="M12 4L21 20H3L12 4Z"/></svg></span> agent<br/>
+            be <span class="highlight-trusted">trusted</span> <span class="inline-badge badge-terracotta" title="Verified Policy Shield"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></span> ?<br/>
+            Put it to the <span class="inline-badge badge-black" title="Deterministic Security Evaluation"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" stroke-width="2.2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.5" fill="white"/></svg></span> test.
+          </h1>
+
+          <p class="hero-top-subtitle">
+            Challenge AI agents. Expose unauthorized actions. Verify that every operation remains under control.
+          </p>
+
+          <div class="hero-top-cta-group">
+            <button id="btn-hero-get-started" class="btn-pill-black" style="font-size: 0.98rem; padding: 0.85rem 2.2rem; cursor: pointer;">
+              Get Started &rarr;
+            </button>
+            <a href="#spec-section" class="btn-pill-outline" style="font-size: 0.98rem; padding: 0.85rem 2.2rem;">
+              Explore Platform
+            </a>
+          </div>
+        </section>
+
+        <!-- Editorial Masthead (Magazine Publication Header) -->
+        <header class="editorial-masthead" id="spec-section">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span class="red-dot"></span>
             <strong>ISSUE N° 48</strong> &bull; VOL. II &bull; AUTUMN 2026
@@ -69,60 +103,49 @@
           </div>
         </header>
 
-        <!-- Swiss Asymmetric Hero Section with 3D WebGL Stage & Vector Artwork -->
-        <div class="swiss-hero">
-          <div class="swiss-hero-left">
-            <div class="swiss-kicker">01 / ARCHITECTURAL SPECIFICATION &bull; SWISS RASTER</div>
-            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 2rem;">
-              <h1 class="swiss-title-raster">Form folgt<br/>Invariante.</h1>
-              <div class="swiss-graphic-circle" title="Swiss Grid Coordinate Origin • Kolkata, West Bengal">
-                <span>CCU<br/>22°34′N<br/>88°22′E</span>
-              </div>
-            </div>
-            
-            <div class="editorial-title-serif">The Architecture of Unyielding Zero-Trust Containment.</div>
-            
-            <p class="editorial-lead editorial-dropcap">
-              AegisHarness eliminates hardcoded assumptions by strictly placing an independent Policy Enforcement Point (PEP) and disposable process sandboxes between local LLM tool proposals and host operating system resources. Rather than relying on fragile prompt alignment, Aegis treats every LLM as fundamentally untrusted, enforcing immutable mathematical boundaries across every system call.
-            </p>
-
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 0.85rem;">
-              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #1A1A1A; font-family: 'Fira Code', monospace; padding: 6px 14px; font-weight: 600;">
-                <span class="red-dot"></span> [PEP] 100% Policy Sentry
-              </span>
-              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #B23A22; font-family: 'Fira Code', monospace; padding: 6px 14px; font-weight: 600;">
-                [SLA] &lt; 15ms Slaughter
-              </span>
-              <span class="badge" style="background: #FAF8F5; border: 1px solid #D8D2C6; color: #1E653A; font-family: 'Fira Code', monospace; padding: 6px 14px; font-weight: 600;">
-                [WORM] SHA-256 Merkle Ledger
-              </span>
-            </div>
-
-            <div style="margin-top: 2rem;">
-              <button id="btn-hero-launch-dashboard" class="swiss-btn-red magnetic-btn" style="font-size: 1.05rem; padding: 1.1rem 2.8rem; cursor: pointer; box-shadow: 0 8px 24px rgba(178, 58, 34, 0.28);">
-                Explore the Live Dashboard &rarr;
-              </button>
-            </div>
+        <!-- Swiss Specification Section - Centered Alignment (Screenshot 2) -->
+        <section class="swiss-spec-centered motion-reveal">
+          <div class="swiss-kicker" style="text-align: center; margin-bottom: 1.25rem;">
+            01 / ARCHITECTURAL SPECIFICATION &bull; SWISS RASTER
           </div>
 
-          <!-- Hero Right: Interactive 3D WebGL Sentry Stage (Motionsites 3D Technique) -->
-          <div class="swiss-hero-right">
-                        <div class="hero-3d-stage" id="hero-3d-stage" tabindex="0" role="region" aria-label="Interactive 3D LLM Neural Sentry and Zero-Trust Policy Enclave. Drag to rotate.">
-              <canvas id="hero-3d-canvas" class="hero-3d-canvas"></canvas>
-              <div class="motion-badge-chip top-left" style="top: 16px; left: 16px; font-size: 0.7rem;">
-                <span style="color: #1E653A; font-weight: 700;">[PEP]</span> ZERO-TRUST ENCLAVE
-              </div>
-              <div class="motion-badge-chip top-right">
-                <span class="red-dot"></span> LLM NEURAL SENTRY
-              </div>
-              <div class="three-d-hint">
-                &harr; Drag to inspect 3D neural shield
-              </div>
+          <div class="swiss-spec-hero-lockup">
+            <h2 class="swiss-title-raster-centered">
+              Form folgt<br/>Invariante.
+            </h2>
+            <div class="swiss-graphic-circle-centered" title="Swiss Grid Coordinate Origin • Kolkata, West Bengal">
+              <span>CCU<br/>22°34′N<br/>88°22′E</span>
             </div>
           </div>
-        </div>
+          
+          <div class="editorial-title-serif" style="text-align: center; margin: 1.5rem auto 1.5rem; max-width: 820px; font-size: 2.1rem;">
+            The Architecture of Unyielding Zero-Trust Containment.
+          </div>
+          
+          <p class="editorial-lead-centered">
+            <span class="editorial-dropcap-char">A</span>egisHarness eliminates hardcoded assumptions by strictly placing an independent Policy Enforcement Point (PEP) and disposable process sandboxes between local LLM tool proposals and host operating system resources. Rather than relying on fragile prompt alignment, Aegis treats every LLM as fundamentally untrusted, enforcing immutable mathematical boundaries across every system call.
+          </p>
 
-        <!-- Editorial Pull Quote Section (Magazine Feature Spread) -->
+          <div class="spec-badges-centered">
+            <span class="badge badge-spec">
+              <span class="red-dot"></span> [PEP] 100% Policy Sentry
+            </span>
+            <span class="badge badge-spec" style="color: #B23A22;">
+              [SLA] &lt; 15ms Slaughter
+            </span>
+            <span class="badge badge-spec" style="color: #1E653A;">
+              [WORM] SHA-256 Merkle Ledger
+            </span>
+          </div>
+
+          <div style="text-align: center; margin-top: 2rem; margin-bottom: 3.5rem;">
+            <button id="btn-hero-launch-dashboard" class="swiss-btn-red magnetic-btn" style="font-size: 1.05rem; padding: 1.1rem 2.8rem; cursor: pointer; box-shadow: 0 8px 24px rgba(178, 58, 34, 0.28);">
+              Explore the Live Dashboard &rarr;
+            </button>
+          </div>
+        </section>
+            
+            <!-- Editorial Pull Quote Section (Magazine Feature Spread) -->
         <div class="editorial-pull-quote-block motion-reveal">
           <div class="editorial-pull-quote-text">
             &ldquo;We didn&rsquo;t slow down. We finally noticed that prompt alignment is merely a probabilistic suggestion, while the kernel boundary is an invariant mathematical truth.&rdquo;
@@ -133,7 +156,7 @@
         </div>
 
         <!-- Chapter 01: Company Zone (Featuring vector_zero_trust_login.png) -->
-        <section class="motion-chapter motion-reveal">
+        <section class="motion-chapter motion-reveal" id="zones-section">
           <div class="motion-chapter-content">
             <div class="swiss-kicker">ZONE 01 &bull; PROTECTED ENTERPRISE</div>
             <h2 style="font-family: var(--font-serif); font-size: 2.2rem; color: #1A1A1A; margin-bottom: 1rem; line-height: 1.2;">
@@ -241,7 +264,7 @@
         </section>
 
         <!-- Live Interactive Simulation Terminal (Mobbin & Motionsites Execution Flow) -->
-        <div class="motion-interactive-terminal motion-reveal">
+        <div class="motion-interactive-terminal motion-reveal" id="sim-section">
           <div class="motion-terminal-header">
             <div style="display: flex; align-items: center;">
               <span class="motion-terminal-dot" style="background: #B23A22;"></span>

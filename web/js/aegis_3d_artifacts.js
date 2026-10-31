@@ -1093,14 +1093,14 @@
       return;
     }
 
-    // Initialize all 5 artifacts
-    initHeroPolicyBoundary();
+    // Initialize chapter artifacts (Hero 3D stage removed per design specification)
+    // initHeroPolicyBoundary();
     initAssetVaultArtifact();
     initAdversarialFieldArtifact();
     initPolicyGateArtifact();
     initImmutableLedgerArtifact();
 
-    console.log('[Aegis 3D] All 5 interactive 3D technical artifacts successfully mounted.');
+    console.log('[Aegis 3D] All chapter 3D technical artifacts successfully mounted.');
   }
 
   // Auto-init on DOM ready
