@@ -638,6 +638,8 @@ class AttackController {
       if (headerTopPills) headerTopPills.style.display = "flex";
       if (headerBackBtn) headerBackBtn.style.display = "inline-flex";
       if (navGetStartedBtn) navGetStartedBtn.style.display = "none";
+      document.body.classList.add("view-dashboard");
+      document.body.classList.remove("view-landing");
       const targetTab = tabId.replace("pane-", "");
       const tabBtn = document.getElementById(`tab-${targetTab}`);
       if (tabBtn) tabBtn.click();
@@ -650,6 +652,8 @@ class AttackController {
       if (headerTopPills) headerTopPills.style.display = "none";
       if (headerBackBtn) headerBackBtn.style.display = "none";
       if (navGetStartedBtn) navGetStartedBtn.style.display = "inline-flex";
+      document.body.classList.remove("view-dashboard");
+      document.body.classList.add("view-landing");
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
 

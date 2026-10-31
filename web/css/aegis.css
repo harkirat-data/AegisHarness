@@ -2431,3 +2431,143 @@ body {
   box-shadow: 0 0 8px rgba(178, 58, 34, 0.4);
 }
 
+
+/* ========================================================================= */
+/* THEME SPLIT: CRISP WHITE LANDING PAGE vs. WARM EDITORIAL BEIGE DASHBOARD  */
+/* ========================================================================= */
+
+/* 1. Landing Page Theme: Crisp White */
+body.view-landing,
+body:not(.view-dashboard) {
+  background-color: #FFFFFF !important;
+}
+
+body.view-landing .navbar,
+body:not(.view-dashboard) .navbar {
+  background: #FFFFFF !important;
+  border-bottom: 1px solid #EBE5DA !important;
+}
+
+.landing-page-view {
+  background: #FFFFFF !important;
+}
+
+.swiss-editorial-spread {
+  background: #FFFFFF !important;
+  border: 1px solid #EBE5DA !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+}
+
+.motion-vector-card {
+  background: #FAFAFA !important;
+  border: 1px solid #EAE5DC !important;
+}
+
+.badge-spec {
+  background: #F7F5F0 !important;
+  border: 1px solid #DCD4C6 !important;
+}
+
+.motion-interactive-terminal {
+  background: #FAF9F6 !important;
+  border: 1px solid #E5DFD4 !important;
+}
+
+.swiss-numbers-grid {
+  background: #FFFFFF !important;
+}
+
+.swiss-num-col {
+  border-left: 1px solid #EAE5DC !important;
+}
+
+.swiss-cta-strip {
+  background: #F8F6F1 !important;
+  border: 1px solid #E2DDD5 !important;
+}
+
+/* 2. Dashboard Theme: Rich Warm Editorial Beige */
+body.view-dashboard {
+  background-color: #EFE9DE !important;
+}
+
+body.view-dashboard .navbar {
+  background: #EBE4D6 !important;
+  border-bottom: 1px solid #D8CFBF !important;
+}
+
+#dashboard-view {
+  background-color: #EFE9DE !important;
+  min-height: calc(100vh - 56px);
+}
+
+body.view-dashboard .tabs-bar {
+  background: #E7DFD0 !important;
+  border-bottom: 1px solid #D8CFBF !important;
+}
+
+body.view-dashboard .tab-btn {
+  color: #6E6B66 !important;
+}
+
+body.view-dashboard .tab-btn:hover {
+  color: #1A1A1A !important;
+}
+
+body.view-dashboard .tab-btn.active {
+  color: #B23A22 !important;
+  border-bottom-color: #B23A22 !important;
+}
+
+body.view-dashboard .card-panel {
+  background: #F7F3EB !important;
+  border: 1px solid #D8CFBF !important;
+  box-shadow: 0 4px 16px rgba(26, 26, 26, 0.05) !important;
+}
+
+body.view-dashboard .metric-tile {
+  background: #ECE5D8 !important;
+  border: 1px solid #DCD4C4 !important;
+}
+
+body.view-dashboard .status-pill-top {
+  background: #E2DACB !important;
+  border-color: #D8CFBF !important;
+}
+
+body.view-dashboard .table-responsive table {
+  background: #F7F3EB !important;
+}
+
+body.view-dashboard thead th {
+  background: #EAE2D3 !important;
+  color: #1A1A1A !important;
+  border-bottom: 1px solid #D8CFBF !important;
+}
+
+body.view-dashboard tbody tr {
+  border-bottom: 1px solid #E5DED0 !important;
+}
+
+body.view-dashboard tbody tr:hover {
+  background: #EFE8DC !important;
+}
+
+body.view-dashboard .chat-container {
+  background: #ECE5D8 !important;
+  border: 1px solid #D8CFBF !important;
+}
+
+body.view-dashboard .chat-msg.agent .msg-text {
+  background: #F7F3EB !important;
+  border: 1px solid #D8CFBF !important;
+  color: #1A1A1A !important;
+}
+
+body.view-dashboard input,
+body.view-dashboard textarea,
+body.view-dashboard select {
+  background: #F7F3EB !important;
+  border-color: #D8CFBF !important;
+  color: #1A1A1A !important;
+}
