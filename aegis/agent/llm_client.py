@@ -54,6 +54,19 @@ SUPPORTED_MODEL_CATALOG = [
         "description": "Google DeepMind Gemma 4 lightweight 2B edge model optimized for low-latency reasoning on 4GB VRAM hardware."
     },
     {
+        "id": "gemma4",
+        "name": "Google Gemma 4 E2B",
+        "provider": "Google DeepMind",
+        "family": "gemma4",
+        "parameter_size": "2B (Effective)",
+        "quantization": "Q4_K_M (~2.1 GB)",
+        "license": "Gemma Terms of Use",
+        "recommended_vram_mb": 2200,
+        "capabilities": ["tools", "structured_json", "rag", "safety_alignment", "multimodal"],
+        "pull_command": "ollama pull gemma4:e2b",
+        "description": "Google DeepMind Gemma 4 lightweight 2B edge model (shorthand alias)."
+    },
+    {
         "id": "llama3.2:3b",
         "name": "Meta Llama 3.2 3B",
         "provider": "Meta AI",
@@ -138,8 +151,13 @@ class LocalLLMClient:
         for entry in SUPPORTED_MODEL_CATALOG:
             item = dict(entry)
             item["is_installed"] = item["id"] in installed_names
+            if not item["is_installed"]:
+                for iname in installed_names:
+                    if iname.startswith(item["id"] + ":") or (":" in iname and iname.split(":")[0] == item["id"].split(":")[0]):
+                        item["is_installed"] = True
+                        break
             if item["is_installed"]:
-                match = next((m for m in installed if m.get("name") == item["id"]), None)
+                match = next((m for m in installed if m.get("name") == item["id"] or m.get("name", "").startswith(item["id"] + ":")), None)
                 if match:
                     item["size_gb"] = match.get("size_gb")
                     item["quantization"] = match.get("quantization")

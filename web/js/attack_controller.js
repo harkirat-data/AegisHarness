@@ -160,16 +160,21 @@ class AttackController {
       if (modelsRes.ok) {
         const mdata = await modelsRes.json();
         const selector = document.getElementById("global-model-selector");
-        if (selector && mdata.models && mdata.models.length > 0) {
+        const modelList = (mdata.catalog && mdata.catalog.length > 0) ? mdata.catalog : (mdata.models || []);
+        if (selector && modelList.length > 0) {
           selector.innerHTML = "";
-          mdata.models.forEach((m) => {
+          modelList.forEach((m) => {
             const opt = document.createElement("option");
-            opt.value = m.name;
-            opt.innerText = `${m.name} (${m.parameter_size || ''} ${m.quantization || ''})`.trim();
-            if (m.name === mdata.active_model) opt.selected = true;
+            const modelId = m.id || m.name;
+            opt.value = modelId;
+            const paramText = m.parameter_size || "";
+            const quantText = m.quantization || "";
+            const statusSuffix = (m.is_installed === false) ? " [Pulling / Needed]" : "";
+            opt.innerText = `${modelId} (${paramText} ${quantText})${statusSuffix}`.trim();
+            if (modelId === mdata.active_model) opt.selected = true;
             selector.appendChild(opt);
           });
-          this.updateModelIndicators(mdata.active_model || mdata.models[0].name);
+          this.updateModelIndicators(mdata.active_model || (modelList[0].id || modelList[0].name));
         }
       }
     } catch (e) {
